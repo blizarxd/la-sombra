@@ -4,6 +4,7 @@ import { fetchMarketsByConditionIds, fetchOrderBook } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
 import { log } from "@/lib/logger";
 import { markPaperTrade, resolvePaperTrade } from "@/lib/paper/engine";
+import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
 import { runScript } from "./_runner";
 
 /**
@@ -44,6 +45,14 @@ runScript("paper:update-pnl", async (db) => {
         const { realizedPnl } = resolvePaperTrade(db, trade, won);
         log.info(`resolved ${trade.id.slice(0, 8)}… ${won ? "WON" : "LOST"} pnl $${realizedPnl.toFixed(2)}`);
         resolved++;
+        // Real-time alert (optional): a paper trade just settled.
+        if (telegramConfigured()) {
+          const q = escapeHtml((trade.marketQuestion ?? trade.marketId).slice(0, 120));
+          await sendTelegramMessage(
+            `${won ? "✅ <b>GANADO</b>" : "❌ <b>PERDIDO</b>"} — trade en PAPEL resuelto\n${q}\n` +
+              `PnL $${realizedPnl.toFixed(2)} (tamaño $${trade.simulatedPositionSize.toFixed(2)})`,
+          );
+        }
         continue;
       }
     }

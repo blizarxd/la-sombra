@@ -7,6 +7,7 @@ import { log } from "@/lib/logger";
 import { openPaperTrade } from "@/lib/paper/engine";
 import { getActiveRules } from "@/lib/rules";
 import { scoreTrade } from "@/lib/scoring/tradeScoring";
+import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
 import { argValue, runScript } from "./_runner";
 
 /**
@@ -155,6 +156,17 @@ runScript("score:trades", async (db) => {
       if (open.opened) {
         reasons.push(`paper fill: ${open.fill.reason}`);
         counts.paper_copy++;
+        // Real-time alert (optional): a paper copy just opened.
+        if (telegramConfigured()) {
+          const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
+          const fillPrice =
+            open.fill.avgFillPrice !== null ? `${(open.fill.avgFillPrice * 100).toFixed(1)}¢` : "?";
+          await sendTelegramMessage(
+            `🟢 <b>La Sombra — copia en PAPEL abierta</b>\n${q}\n` +
+              `Billetera ${obs.walletAddress.slice(0, 10)}… · puntaje ${Math.round(result.copyScore)}\n` +
+              `Entrada $${(result.simulatedPositionSize ?? 0).toFixed(2)} a ${fillPrice}`,
+          );
+        }
       } else {
         risks.push(`UNFILLABLE: ${open.fill.reason} — no paper trade opened (fill-rate realism)`);
         counts.unfillable++;

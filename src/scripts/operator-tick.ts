@@ -94,7 +94,7 @@ async function main() {
       `[operator:tick] running DAILY cycle (${firstOfDay ? "first tick of the day" : "bootstrap: empty wallet queue"})`,
     );
     step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
-    step("scan-wallets.ts", ["--limit", "25"]); // profile a fresh batch, gentle on the API
+    step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
     step("update-rules.ts");
     step("report-daily.ts");
     writeState({ ...state, lastDailyRun: today });
