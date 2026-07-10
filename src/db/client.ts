@@ -1,3 +1,4 @@
+import "../lib/env";
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import fs from "node:fs";

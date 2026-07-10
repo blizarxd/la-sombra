@@ -1,3 +1,5 @@
+import "./env";
+
 /**
  * Minimal timestamped logger with secret redaction.
  * Anything that looks like a Telegram bot token or long hex secret is masked.
