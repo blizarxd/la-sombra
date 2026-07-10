@@ -43,6 +43,11 @@ function parseJsonArray(v: unknown): unknown[] {
 // Leaderboard
 // ---------------------------------------------------------------------------
 
+/**
+ * Endpoint verified live on 2026-07-10: GET data-api.polymarket.com/v1/leaderboard
+ * (the old /leaderboard path 404s). The API caps pages at 50 rows but supports
+ * offset pagination, so we page up to the requested limit.
+ */
 export async function fetchLeaderboard(opts?: {
   window?: "1d" | "7d" | "30d" | "all";
   rankType?: "pnl" | "vol";
@@ -51,19 +56,28 @@ export async function fetchLeaderboard(opts?: {
   const window = opts?.window ?? "30d";
   const rankType = opts?.rankType ?? "pnl";
   const limit = opts?.limit ?? 500;
-  const url = `${DATA_API()}/leaderboard?window=${window}&rankType=${rankType}&limit=${limit}`;
-  const data = await httpGet("polymarket-data-api", url);
-  if (!Array.isArray(data)) {
-    throw new AdapterError("polymarket-data-api", url, 200, "unexpected leaderboard shape (not an array)");
+  const pageSize = 50; // observed server-side cap
+  const out: LeaderboardEntry[] = [];
+  for (let offset = 0; offset < limit; offset += pageSize) {
+    const url = `${DATA_API()}/v1/leaderboard?window=${window}&rankType=${rankType}&limit=${Math.min(pageSize, limit - offset)}&offset=${offset}`;
+    const data = await httpGet("polymarket-data-api", url);
+    if (!Array.isArray(data)) {
+      throw new AdapterError("polymarket-data-api", url, 200, "unexpected leaderboard shape (not an array)");
+    }
+    if (data.length === 0) break;
+    for (const row of data as any[]) {
+      out.push({
+        address: String(row.proxyWallet ?? row.address ?? row.wallet ?? "").toLowerCase(),
+        label: (row.userName || row.name || row.pseudonym || null) as string | null,
+        rank: num(row.rank) ?? out.length + 1,
+        pnl: num(row.pnl ?? row.amount),
+        volume: num(row.vol ?? row.volume),
+        raw: row,
+      });
+    }
+    if (data.length < pageSize) break;
   }
-  return data.map((row: any, i: number) => ({
-    address: String(row.proxyWallet ?? row.address ?? row.wallet ?? "").toLowerCase(),
-    label: (row.name || row.pseudonym || null) as string | null,
-    rank: num(row.rank) ?? i + 1,
-    pnl: rankType === "pnl" ? num(row.amount) : num(row.pnl),
-    volume: rankType === "vol" ? num(row.amount) : num(row.vol ?? row.volume),
-    raw: row,
-  }));
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -148,20 +162,53 @@ function toMarketInfo(row: any): MarketInfo {
   };
 }
 
+/**
+ * CLOB market metadata (verified live 2026-07-10): GET clob.polymarket.com/markets/{conditionId}.
+ * Gamma's conditionIds filter silently ignores the parameter, so per-market
+ * lookups go to the CLOB, whose response includes explicit token winner flags —
+ * exactly what resolution detection needs. Liquidity/volume are not included
+ * (callers estimate liquidity from the order book instead).
+ */
+function clobToMarketInfo(row: any): MarketInfo {
+  const tokens: any[] = Array.isArray(row?.tokens) ? row.tokens : [];
+  const outcomes = tokens.map((t) => String(t.outcome ?? ""));
+  const clobTokenIds = tokens.map((t) => String(t.token_id ?? ""));
+  const outcomePrices = tokens.map((t) => num(t.price) ?? 0);
+  const closed = Boolean(row.closed);
+  let winningOutcomeIndex: number | null = null;
+  const winnerIdx = tokens.findIndex((t) => t.winner === true);
+  if (winnerIdx >= 0) winningOutcomeIndex = winnerIdx;
+  const tags: string[] = Array.isArray(row.tags) ? row.tags.map(String) : [];
+  return {
+    marketId: String(row.condition_id ?? ""),
+    conditionId: row.condition_id ? String(row.condition_id) : null,
+    question: (row.question ?? null) as string | null,
+    category: tags[0] ?? null,
+    outcomes,
+    clobTokenIds,
+    outcomePrices,
+    liquidity: null, // not exposed by the CLOB metadata endpoint
+    volume: null,
+    endDateMs: row.end_date_iso ? Date.parse(String(row.end_date_iso)) || null : null,
+    closed,
+    resolved: winningOutcomeIndex !== null,
+    winningOutcomeIndex,
+    raw: row,
+  };
+}
+
 export async function fetchMarketsByConditionIds(conditionIds: string[]): Promise<MarketInfo[]> {
-  if (conditionIds.length === 0) return [];
   const out: MarketInfo[] = [];
-  // Gamma supports repeated condition_ids params; batch to keep URLs short.
-  const batchSize = 20;
-  for (let i = 0; i < conditionIds.length; i += batchSize) {
-    const batch = conditionIds.slice(i, i + batchSize);
-    const qs = batch.map((c) => `condition_ids=${encodeURIComponent(c)}`).join("&");
-    const url = `${GAMMA_API()}/markets?${qs}&limit=${batch.length}`;
-    const data = await httpGet("polymarket-gamma-api", url);
-    if (!Array.isArray(data)) {
-      throw new AdapterError("polymarket-gamma-api", url, 200, "unexpected markets shape (not an array)");
+  for (const cid of conditionIds) {
+    const url = `${CLOB_API()}/markets/${encodeURIComponent(cid)}`;
+    try {
+      const data = await httpGet("polymarket-clob-api", url);
+      out.push(clobToMarketInfo(data));
+    } catch (err) {
+      // A market the CLOB no longer serves (404) is real information: skip it.
+      if (err instanceof AdapterError && err.status === 404) continue;
+      throw err;
     }
-    for (const row of data) out.push(toMarketInfo(row));
   }
   return out;
 }

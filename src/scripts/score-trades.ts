@@ -81,6 +81,13 @@ runScript("score:trades", async (db) => {
     const timeToResolutionHours =
       market?.endDateMs != null ? (market.endDateMs - Date.now()) / 3600_000 : null;
 
+    // Liquidity: prefer market metadata; otherwise estimate from live book depth
+    // (sum of resting notional on both sides).
+    const bookLiquidity = book
+      ? [...book.bids, ...book.asks].reduce((a, l) => a + l.price * l.size, 0)
+      : null;
+    const liquidity = market?.liquidity ?? bookLiquidity;
+
     // --- persist a market snapshot for later outcome reviews ---
     if (market || book) {
       db.insert(marketSnapshots)
@@ -95,7 +102,7 @@ runScript("score:trades", async (db) => {
           bestBid: book?.bestBid ?? null,
           bestAsk: book?.bestAsk ?? null,
           spread: book?.spread ?? null,
-          liquidity: market?.liquidity ?? null,
+          liquidity,
           volume: market?.volume ?? null,
           timeToResolution: timeToResolutionHours,
           collectedAt: now,
@@ -116,10 +123,11 @@ runScript("score:trades", async (db) => {
           wallet?.bestCategory ?? null,
         ),
         side: obs.side,
+        walletEntryPrice: obs.walletEntryPrice,
         currentAsk: book?.bestAsk ?? null,
         currentBid: book?.bestBid ?? null,
         spread: book?.spread ?? null,
-        liquidity: market?.liquidity ?? null,
+        liquidity,
         timeToResolutionHours,
       },
       rules,

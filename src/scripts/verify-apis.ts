@@ -1,4 +1,4 @@
-import { fetchLeaderboard, fetchOneActiveMarket, fetchOrderBook } from "@/lib/adapters";
+import { fetchLeaderboard, fetchMarketsByConditionIds, fetchOneActiveMarket, fetchOrderBook } from "@/lib/adapters";
 import { AdapterError } from "@/lib/adapters/types";
 
 /**
@@ -25,14 +25,31 @@ async function main() {
 
   // 2) one market from gamma
   let tokenId: string | null = null;
+  let conditionId: string | null = null;
   try {
     const market = await fetchOneActiveMarket();
     if (!market) throw new Error("gamma returned no active markets");
     tokenId = market.clobTokenIds[0] ?? null;
+    conditionId = market.conditionId;
     console.log(`[OK] gamma market: "${market.question?.slice(0, 70)}" liquidity=$${market.liquidity?.toFixed(0) ?? "?"}`);
   } catch (err) {
     failures++;
     console.error(`[FAIL] gamma market: ${err instanceof AdapterError ? err.message : String(err)}`);
+  }
+
+  // 2b) market metadata by conditionId via CLOB (the pipeline's lookup path)
+  if (conditionId) {
+    try {
+      const [info] = await fetchMarketsByConditionIds([conditionId]);
+      if (!info) throw new Error(`CLOB returned no market for ${conditionId}`);
+      console.log(
+        `[OK] clob market lookup: "${info.question?.slice(0, 60)}" outcomes=${info.outcomes.join("/")} closed=${info.closed} resolved=${info.resolved}`,
+      );
+      tokenId = tokenId ?? info.clobTokenIds[0] ?? null;
+    } catch (err) {
+      failures++;
+      console.error(`[FAIL] clob market lookup: ${err instanceof AdapterError ? err.message : String(err)}`);
+    }
   }
 
   // 3) order book for that market
