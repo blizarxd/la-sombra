@@ -3,7 +3,10 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { log } from "@/lib/logger";
+import { isNotNull } from "drizzle-orm";
+import { getDb } from "../db/client";
+import { walletProfiles } from "../db/schema";
+import { log } from "../lib/logger";
 
 /**
  * Single "operator tick" for scheduler / `/loop` use.
@@ -39,6 +42,21 @@ function todayKey(): string {
   return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 }
 
+/** True once at least one real (leaderboard-sourced) wallet is queued. */
+function hasWalletQueue(): boolean {
+  try {
+    const rows = getDb()
+      .select({ id: walletProfiles.id })
+      .from(walletProfiles)
+      .where(isNotNull(walletProfiles.sourceRank))
+      .limit(1)
+      .all();
+    return rows.length > 0;
+  } catch {
+    return true; // never block the tick on a read error
+  }
+}
+
 function step(scriptFile: string, args: string[] = []): void {
   const full = path.join(scriptsDir, scriptFile);
   try {
@@ -65,11 +83,17 @@ async function main() {
   step("paper-update-pnl.ts");
   step("review-outcomes.ts");
 
-  // --- Daily cycle: at most once per calendar day ---
+  // --- Daily cycle: once per calendar day, or immediately if the real-wallet
+  // queue is still empty (self-heals a fresh deploy without waiting a day). ---
   const state = readState();
   const today = todayKey();
-  if (state.lastDailyRun !== today) {
-    log.info("[operator:tick] running DAILY cycle (first tick of the day)");
+  const firstOfDay = state.lastDailyRun !== today;
+  const bootstrap = !hasWalletQueue();
+  if (firstOfDay || bootstrap) {
+    log.info(
+      `[operator:tick] running DAILY cycle (${firstOfDay ? "first tick of the day" : "bootstrap: empty wallet queue"})`,
+    );
+    step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
     step("scan-wallets.ts", ["--limit", "25"]); // profile a fresh batch, gentle on the API
     step("update-rules.ts");
     step("report-daily.ts");
