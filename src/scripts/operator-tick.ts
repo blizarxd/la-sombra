@@ -4,7 +4,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isNotNull } from "drizzle-orm";
-import { getDb } from "../db/client";
+import { getDb, getDbPath } from "../db/client";
 import { walletProfiles } from "../db/schema";
 import { log } from "../lib/logger";
 
@@ -22,7 +22,9 @@ import { log } from "../lib/logger";
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptsDir, "..", "..");
-const statePath = path.join(projectRoot, "data", "operator-state.json");
+// Keep cadence state NEXT TO THE DATABASE (the persistent volume in the
+// cloud) so a redeploy does not re-trigger the daily cycle.
+const statePath = path.join(path.dirname(getDbPath()), "operator-state.json");
 
 type State = { lastDailyRun?: string };
 
