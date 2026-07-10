@@ -9,7 +9,7 @@ export function PnlChart({
   if (points.length < 2) {
     return (
       <div className="flex h-40 items-center justify-center text-sm text-mist">
-        Not enough PnL snapshots yet — the chart appears after a few hourly updates.
+        Aún no hay suficientes capturas de PnL — el gráfico aparece tras unas cuantas actualizaciones por hora.
       </div>
     );
   }
@@ -33,10 +33,10 @@ export function PnlChart({
   const lineColor = last.pnl >= 0 ? "#34d399" : "#fb7185";
 
   const fmtDay = (t: number) =>
-    new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    new Date(t).toLocaleDateString("es-ES", { month: "short", day: "numeric" });
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="Paper PnL over time">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="PnL en papel a lo largo del tiempo">
       <line x1={pad.l} y1={zeroY} x2={width - pad.r} y2={zeroY} stroke="#232c38" strokeDasharray="4 4" />
       <text x={4} y={py(maxY) + 4} fill="#8b98a9" fontSize="11">
         ${maxY.toFixed(0)}

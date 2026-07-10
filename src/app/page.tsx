@@ -27,27 +27,27 @@ export default function OverviewPage() {
   return (
     <div className="space-y-6">
       <header>
-        <h1 className="text-xl font-bold">Overview</h1>
-        <p className="text-sm text-mist">Are we profitable on paper? Which wallets are worth copying? What did the bot learn today?</p>
+        <h1 className="text-xl font-bold">Resumen</h1>
+        <p className="text-sm text-mist">¿Vamos ganando en papel? ¿Qué billeteras vale la pena copiar? ¿Qué aprendió el bot hoy?</p>
       </header>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat label="Total paper PnL" value={money(stats.totalPaperPnl, { sign: true })} tone={pnlTone} hint={`realized ${money(stats.realizedPnl)} · open ${money(stats.unrealizedPnl)}`} />
-        <Stat label="Win rate" value={pct(stats.winRate)} hint={`${stats.resolvedCount} resolved paper trades`} />
-        <Stat label="Open positions" value={String(stats.openPositions.length)} />
-        <Stat label="Tracked wallets" value={String(stats.trackedWallets)} />
-        <Stat label="Copy candidates today" value={String(stats.copyCandidatesToday)} hint={`${stats.signalsToday} signals scored`} />
+        <Stat label="PnL total en papel" value={money(stats.totalPaperPnl, { sign: true })} tone={pnlTone} hint={`realizado ${money(stats.realizedPnl)} · abierto ${money(stats.unrealizedPnl)}`} />
+        <Stat label="Tasa de acierto" value={pct(stats.winRate)} hint={`${stats.resolvedCount} trades en papel resueltos`} />
+        <Stat label="Posiciones abiertas" value={String(stats.openPositions.length)} />
+        <Stat label="Billeteras seguidas" value={String(stats.trackedWallets)} />
+        <Stat label="Candidatos a copiar hoy" value={String(stats.copyCandidatesToday)} hint={`${stats.signalsToday} señales evaluadas`} />
       </div>
 
-      <Card title="Paper PnL over time">
+      <Card title="PnL en papel a lo largo del tiempo">
         <PnlChart points={series} />
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Top wallets by global score">
+        <Card title="Mejores billeteras por puntaje global">
           {topWallets.length === 0 ? (
             <Empty>
-              No scored wallets yet. Run <code className="text-accent">npm run scan:leaderboard</code> then{" "}
+              Aún no hay billeteras puntuadas. Corre <code className="text-accent">npm run scan:leaderboard</code> y luego{" "}
               <code className="text-accent">npm run scan:wallets</code>.
             </Empty>
           ) : (
@@ -62,7 +62,7 @@ export default function OverviewPage() {
                     {isDemo(w.label, w.address) ? <DemoTag /> : null}
                   </span>
                   <span className="text-mist">
-                    score <span className="font-semibold text-bright">{score(w.globalScore)}</span> · ROI {pct(w.roi30d)}
+                    puntaje <span className="font-semibold text-bright">{score(w.globalScore)}</span> · ROI {pct(w.roi30d)}
                   </span>
                 </li>
               ))}
@@ -70,9 +70,9 @@ export default function OverviewPage() {
           )}
         </Card>
 
-        <Card title="What the bot learned today">
+        <Card title="Qué aprendió el bot hoy">
           {stats.latestChanges.length === 0 ? (
-            <Empty>No automatic rule changes yet. The self-improvement loop needs resolved outcomes as evidence.</Empty>
+            <Empty>Aún no hay cambios automáticos de reglas. El ciclo de automejora necesita resultados resueltos como evidencia.</Empty>
           ) : (
             <ul className="space-y-3 text-sm">
               {stats.latestChanges.map((c) => (
@@ -86,27 +86,27 @@ export default function OverviewPage() {
             </ul>
           )}
           <div className="mt-4 border-t border-edge pt-3 text-xs text-mist">
-            Bot-filtered vs blind copy:{" "}
+            Filtrado por el bot vs copia ciega:{" "}
             {bench.botBeatsBlind === null ? (
-              "not enough resolved data yet"
+              "aún no hay datos resueltos suficientes"
             ) : bench.botBeatsBlind ? (
-              <span className="text-profit">bot ahead</span>
+              <span className="text-profit">el bot va adelante</span>
             ) : (
-              <span className="text-loss">blind ahead</span>
+              <span className="text-loss">la copia ciega va adelante</span>
             )}{" "}
-            (bot avg <PnlText value={bench.botFiltered.avgPnl} /> vs blind avg <PnlText value={bench.blindCopy.avgPnl} /> per trade)
+            (prom. bot <PnlText value={bench.botFiltered.avgPnl} /> vs prom. ciega <PnlText value={bench.blindCopy.avgPnl} /> por trade)
           </div>
         </Card>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Latest EOD report">
+        <Card title="Último reporte de cierre del día">
           {stats.latestReport ? (
             <div>
               <div className="mb-2 flex items-center gap-2 text-sm">
                 <span className="font-semibold">{stats.latestReport.date}</span>
                 <Badge value={stats.latestReport.sentToTelegram ? "won" : "pending"} />
-                <span className="text-xs text-mist">{stats.latestReport.sentToTelegram ? "sent to Telegram" : "stored in DB (Telegram not configured)"}</span>
+                <span className="text-xs text-mist">{stats.latestReport.sentToTelegram ? "enviado a Telegram" : "guardado en la BD (Telegram no configurado)"}</span>
                 {isDemo(stats.latestReport.summary) ? <DemoTag /> : null}
               </div>
               <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-lg bg-panel2 p-3 text-xs leading-5 text-mist">
@@ -115,23 +115,23 @@ export default function OverviewPage() {
             </div>
           ) : (
             <Empty>
-              No reports yet. Run <code className="text-accent">npm run report:daily</code>.
+              Aún no hay reportes. Corre <code className="text-accent">npm run report:daily</code>.
             </Empty>
           )}
         </Card>
 
-        <Card title="Active rules">
+        <Card title="Reglas activas">
           <div className="text-sm">
             {stats.activeRuleVersion ? (
               <>
-                Rule set <span className="font-semibold text-accent">v{stats.activeRuleVersion}</span> is active.{" "}
+                El set de reglas <span className="font-semibold text-accent">v{stats.activeRuleVersion}</span> está activo.{" "}
                 <Link href="/rules" className="text-accent hover:underline">
-                  View thresholds and full version history →
+                  Ver umbrales e historial completo de versiones →
                 </Link>
               </>
             ) : (
               <Empty>
-                Rules not initialized. Run <code className="text-accent">npm run seed</code>.
+                Reglas sin inicializar. Corre <code className="text-accent">npm run seed</code>.
               </Empty>
             )}
           </div>

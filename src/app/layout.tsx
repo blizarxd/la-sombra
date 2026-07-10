@@ -3,31 +3,31 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "La Sombra — Polymarket copy-trading research (paper only)",
-  description: "Self-improving copy-trading research bot. Simulated trades only — never real money.",
+  title: "La Sombra — investigación de copy trading en Polymarket (solo papel)",
+  description: "Bot de investigación de copy trading que se automejora. Solo trades simulados — nunca dinero real.",
 };
 
 const nav = [
-  { href: "/", label: "Overview" },
-  { href: "/wallets", label: "Wallet Rankings" },
-  { href: "/signals", label: "Trade Signals" },
-  { href: "/paper", label: "Paper Trades" },
-  { href: "/journal", label: "Decision Journal" },
-  { href: "/performance", label: "Performance" },
-  { href: "/rules", label: "Rules" },
-  { href: "/reports", label: "Reports" },
+  { href: "/", label: "Resumen" },
+  { href: "/wallets", label: "Ranking de billeteras" },
+  { href: "/signals", label: "Señales" },
+  { href: "/paper", label: "Trades en papel" },
+  { href: "/journal", label: "Diario de decisiones" },
+  { href: "/performance", label: "Rendimiento" },
+  { href: "/rules", label: "Reglas" },
+  { href: "/reports", label: "Reportes" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="es">
       <body className="min-h-screen antialiased">
         <div className="mx-auto flex min-h-screen max-w-7xl">
           <aside className="hidden w-52 shrink-0 border-r border-edge px-4 py-6 md:block">
             <div className="mb-1 text-lg font-bold tracking-tight">
               La <span className="text-accent">Sombra</span>
             </div>
-            <div className="mb-6 text-[11px] leading-4 text-mist">copy-trading research</div>
+            <div className="mb-6 text-[11px] leading-4 text-mist">investigación de copy trading</div>
             <nav className="flex flex-col gap-1">
               {nav.map((item) => (
                 <Link
@@ -40,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               ))}
             </nav>
             <div className="mt-8 rounded-lg border border-amber-900 bg-amber-950/40 p-3 text-[11px] leading-4 text-watch">
-              PAPER TRADING ONLY. No real orders, no keys, no money. Not financial advice.
+              SOLO TRADING EN PAPEL. Sin órdenes reales, sin claves, sin dinero. Esto no es asesoría financiera.
             </div>
           </aside>
           <main className="min-w-0 flex-1 px-4 py-6 md:px-8">

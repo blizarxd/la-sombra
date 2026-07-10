@@ -47,11 +47,27 @@ const badgeTones: Record<string, string> = {
   demo: "bg-fuchsia-950 text-fuchsia-300 border-fuchsia-800",
 };
 
+const badgeLabels: Record<string, string> = {
+  paper_copy: "copiado",
+  track: "seguida",
+  won: "ganado",
+  open: "abierto",
+  watchlist: "vigilancia",
+  watch: "vigilar",
+  pending: "pendiente",
+  skip: "descartado",
+  ignore: "ignorada",
+  closed: "cerrado",
+  lost: "perdido",
+  resolved: "resuelto",
+  demo: "demo",
+};
+
 export function Badge({ value }: { value: string }) {
   const tone = badgeTones[value] ?? "bg-slate-800 text-mist border-slate-700";
   return (
     <span className={`inline-block rounded-full border px-2 py-0.5 text-[11px] font-medium leading-4 ${tone}`}>
-      {value.replace("_", " ")}
+      {badgeLabels[value] ?? value.replace("_", " ")}
     </span>
   );
 }

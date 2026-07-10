@@ -21,16 +21,16 @@ export default function WalletsPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Wallet Rankings</h1>
+        <h1 className="text-xl font-bold">Ranking de billeteras</h1>
         <p className="text-sm text-mist">
-          Top-500 leaderboard scan, scored by ROI, consistency and copyability with one-hit-wonder penalty.
-          {unscored > 0 ? ` ${unscored} wallets await deep profiling (npm run scan:wallets).` : ""}
+          Escaneo del top 500 del leaderboard, puntuado por ROI, consistencia y facilidad de copia, con penalización por golpe de suerte.
+          {unscored > 0 ? ` ${unscored} billeteras esperan perfilado profundo (npm run scan:wallets).` : ""}
         </p>
       </header>
 
       {scored.length === 0 ? (
         <Empty>
-          No scored wallets yet. Run <code className="text-accent">npm run scan:leaderboard</code> then{" "}
+          Aún no hay billeteras puntuadas. Corre <code className="text-accent">npm run scan:leaderboard</code> y luego{" "}
           <code className="text-accent">npm run scan:wallets</code>.
         </Empty>
       ) : (
@@ -38,15 +38,15 @@ export default function WalletsPage() {
           <thead>
             <tr>
               <Th>#</Th>
-              <Th>Wallet</Th>
-              <Th>Status</Th>
+              <Th>Billetera</Th>
+              <Th>Estado</Th>
               <Th className="text-right">Global</Th>
               <Th className="text-right">ROI 30d</Th>
-              <Th className="text-right">Consistency</Th>
-              <Th className="text-right">Copyability</Th>
-              <Th className="text-right">1-hit penalty</Th>
-              <Th>Best category</Th>
-              <Th>Reason</Th>
+              <Th className="text-right">Consistencia</Th>
+              <Th className="text-right">Copiabilidad</Th>
+              <Th className="text-right">Pen. suerte</Th>
+              <Th>Mejor categoría</Th>
+              <Th>Motivo</Th>
             </tr>
           </thead>
           <tbody>

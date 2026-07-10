@@ -16,7 +16,7 @@ export default async function WalletProfilePage({ params }: { params: Promise<{ 
   if (!wallet) {
     return (
       <Empty>
-        Wallet {shortAddr(address)} not found. <Link href="/wallets" className="text-accent">Back to rankings</Link>
+        Billetera {shortAddr(address)} no encontrada. <Link href="/wallets" className="text-accent">Volver al ranking</Link>
       </Empty>
     );
   }
@@ -45,8 +45,8 @@ export default async function WalletProfilePage({ params }: { params: Promise<{ 
 
   const copyable =
     (wallet.copyabilityScore ?? 0) >= 50
-      ? { label: "COPYABLE", cls: "text-profit" }
-      : { label: "HARD TO COPY", cls: "text-loss" };
+      ? { label: "COPIABLE", cls: "text-profit" }
+      : { label: "DIFÍCIL DE COPIAR", cls: "text-loss" };
 
   return (
     <div className="space-y-4">
@@ -59,55 +59,55 @@ export default async function WalletProfilePage({ params }: { params: Promise<{ 
       </header>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <Stat label="Global score" value={score(wallet.globalScore)} />
+        <Stat label="Puntaje global" value={score(wallet.globalScore)} />
         <Stat label="ROI 30d" value={pct(wallet.roi30d)} tone={(wallet.roi30d ?? 0) >= 0 ? "profit" : "loss"} />
-        <Stat label="Win rate (resolved)" value={pct(wallet.winRate30d)} hint={`${wallet.resolvedTradeCount30d ?? 0} of ${wallet.tradeCount30d ?? 0} trades resolved`} />
-        <Stat label="Avg trade size" value={money(wallet.averageTradeSize)} />
-        <Stat label="1-hit-wonder penalty" value={score(wallet.oneHitWonderPenalty)} tone={(wallet.oneHitWonderPenalty ?? 0) > 30 ? "loss" : "neutral"} />
-        <Stat label="Paper PnL if copied" value={money(paperPnl, { sign: true })} tone={paperPnl > 0 ? "profit" : paperPnl < 0 ? "loss" : "neutral"} hint={`${papers.length} paper trades`} />
+        <Stat label="Tasa de acierto (resuelto)" value={pct(wallet.winRate30d)} hint={`${wallet.resolvedTradeCount30d ?? 0} de ${wallet.tradeCount30d ?? 0} trades resueltos`} />
+        <Stat label="Tamaño prom. de trade" value={money(wallet.averageTradeSize)} />
+        <Stat label="Penal. golpe de suerte" value={score(wallet.oneHitWonderPenalty)} tone={(wallet.oneHitWonderPenalty ?? 0) > 30 ? "loss" : "neutral"} />
+        <Stat label="PnL en papel si se copia" value={money(paperPnl, { sign: true })} tone={paperPnl > 0 ? "profit" : paperPnl < 0 ? "loss" : "neutral"} hint={`${papers.length} trades en papel`} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Liquidity profile">
+        <Card title="Perfil de liquidez">
           <dl className="space-y-2 text-sm">
-            <div className="flex justify-between"><dt className="text-mist">Avg market liquidity</dt><dd>{money(wallet.averageLiquidity)}</dd></div>
-            <div className="flex justify-between"><dt className="text-mist">Avg spread (live)</dt><dd>{wallet.averageSpread != null ? wallet.averageSpread.toFixed(3) : "—"}</dd></div>
-            <div className="flex justify-between"><dt className="text-mist">Avg entry drift (live)</dt><dd>{wallet.averageEntryTiming != null ? wallet.averageEntryTiming.toFixed(3) : "—"}</dd></div>
-            <div className="flex justify-between"><dt className="text-mist">Consistency</dt><dd>{score(wallet.consistencyScore)}</dd></div>
-            <div className="flex justify-between"><dt className="text-mist">Copyability</dt><dd>{score(wallet.copyabilityScore)}</dd></div>
+            <div className="flex justify-between"><dt className="text-mist">Liquidez prom. del mercado</dt><dd>{money(wallet.averageLiquidity)}</dd></div>
+            <div className="flex justify-between"><dt className="text-mist">Spread prom. (en vivo)</dt><dd>{wallet.averageSpread != null ? wallet.averageSpread.toFixed(3) : "—"}</dd></div>
+            <div className="flex justify-between"><dt className="text-mist">Deriva prom. de entrada (en vivo)</dt><dd>{wallet.averageEntryTiming != null ? wallet.averageEntryTiming.toFixed(3) : "—"}</dd></div>
+            <div className="flex justify-between"><dt className="text-mist">Consistencia</dt><dd>{score(wallet.consistencyScore)}</dd></div>
+            <div className="flex justify-between"><dt className="text-mist">Copiabilidad</dt><dd>{score(wallet.copyabilityScore)}</dd></div>
           </dl>
         </Card>
-        <Card title="Category strengths">
+        <Card title="Fortalezas por categoría">
           {Object.keys(strengths).length === 0 ? (
-            <div className="text-sm text-mist">No category data yet.</div>
+            <div className="text-sm text-mist">Aún no hay datos de categoría.</div>
           ) : (
             <ul className="space-y-2 text-sm">
               {Object.entries(strengths).map(([cat, s]) => (
                 <li key={cat} className="flex justify-between">
                   <span className={cat === wallet.bestCategory ? "font-semibold text-accent" : ""}>{cat}</span>
-                  <span className="text-mist">{s.trades} trades · WR {pct(s.winRate)} · <PnlText value={s.pnl} /></span>
+                  <span className="text-mist">{s.trades} trades · TA {pct(s.winRate)} · <PnlText value={s.pnl} /></span>
                 </li>
               ))}
             </ul>
           )}
         </Card>
-        <Card title="Notes">
+        <Card title="Notas">
           <div className="space-y-2 text-sm">
-            <div><span className="text-mist">Copyability: </span>{wallet.copyabilityNotes ?? "—"}</div>
-            <div><span className="text-mist">Risks: </span>{wallet.riskNotes ?? "—"}</div>
-            <div className="text-xs text-mist">Last scanned {when(wallet.lastScannedAt)}</div>
+            <div><span className="text-mist">Copiabilidad: </span>{wallet.copyabilityNotes ?? "—"}</div>
+            <div><span className="text-mist">Riesgos: </span>{wallet.riskNotes ?? "—"}</div>
+            <div className="text-xs text-mist">Último escaneo {when(wallet.lastScannedAt)}</div>
           </div>
         </Card>
       </div>
 
-      <Card title={`Recent observed trades (${recent.length})`}>
+      <Card title={`Trades observados recientes (${recent.length})`}>
         {recent.length === 0 ? (
-          <div className="text-sm text-mist">No observed trades yet — the monitor picks these up while the wallet is tracked.</div>
+          <div className="text-sm text-mist">Aún no hay trades observados — el monitor los capta mientras la billetera está seguida.</div>
         ) : (
           <Table>
             <thead>
               <tr>
-                <Th>Time</Th><Th>Market</Th><Th>Side</Th><Th className="text-right">Entry</Th><Th className="text-right">Detected</Th><Th className="text-right">Size</Th>
+                <Th>Hora</Th><Th>Mercado</Th><Th>Lado</Th><Th className="text-right">Entrada</Th><Th className="text-right">Detectado</Th><Th className="text-right">Tamaño</Th>
               </tr>
             </thead>
             <tbody>

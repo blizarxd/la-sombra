@@ -24,30 +24,30 @@ export default function SignalsPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Trade Signals</h1>
-        <p className="text-sm text-mist">New trades from tracked wallets, scored against current market conditions and the active rules.</p>
+        <h1 className="text-xl font-bold">Señales</h1>
+        <p className="text-sm text-mist">Trades nuevos de las billeteras seguidas, evaluados contra las condiciones actuales del mercado y las reglas activas.</p>
       </header>
 
       {signals.length === 0 ? (
         <Empty>
-          No signals yet. Run <code className="text-accent">npm run monitor:trades</code> then <code className="text-accent">npm run score:trades</code>.
+          Aún no hay señales. Corre <code className="text-accent">npm run monitor:trades</code> y luego <code className="text-accent">npm run score:trades</code>.
         </Empty>
       ) : (
         <Table>
           <thead>
             <tr>
-              <Th>Detected</Th>
-              <Th>Market</Th>
-              <Th>Wallet</Th>
-              <Th className="text-right">Wallet entry</Th>
-              <Th className="text-right">Current</Th>
-              <Th className="text-right">Move</Th>
+              <Th>Detectada</Th>
+              <Th>Mercado</Th>
+              <Th>Billetera</Th>
+              <Th className="text-right">Entrada billetera</Th>
+              <Th className="text-right">Actual</Th>
+              <Th className="text-right">Cambio</Th>
               <Th className="text-right">Spread</Th>
-              <Th className="text-right">Liquidity</Th>
-              <Th className="text-right">Resolves</Th>
-              <Th>Decision</Th>
-              <Th className="text-right">Score</Th>
-              <Th>Reason / risk</Th>
+              <Th className="text-right">Liquidez</Th>
+              <Th className="text-right">Resuelve</Th>
+              <Th>Decisión</Th>
+              <Th className="text-right">Puntaje</Th>
+              <Th>Motivo / riesgo</Th>
             </tr>
           </thead>
           <tbody>

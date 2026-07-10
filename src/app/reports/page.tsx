@@ -29,15 +29,15 @@ export default function ReportsPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Reports</h1>
+        <h1 className="text-xl font-bold">Reportes</h1>
         <p className="text-sm text-mist">
-          End-of-day reports written by the operator loop. Sent to Telegram only when TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are configured; always stored here.
+          Reportes de cierre del día escritos por el ciclo del operador. Se envían a Telegram solo cuando TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID están configurados; siempre se guardan aquí.
         </p>
       </header>
 
       {reports.length === 0 ? (
         <Empty>
-          No reports yet. Run <code className="text-accent">npm run report:daily</code>.
+          Aún no hay reportes. Corre <code className="text-accent">npm run report:daily</code>.
         </Empty>
       ) : (
         <div className="space-y-4">
@@ -56,40 +56,40 @@ export default function ReportsPage() {
                   <span className="text-base font-bold">{r.date}</span>
                   {isDemo(r.summary) ? <DemoTag /> : null}
                   <Badge value={r.sentToTelegram ? "won" : "pending"} />
-                  <span className="text-xs text-mist">{r.sentToTelegram ? "sent to Telegram" : "DB only"}</span>
-                  <span className="ml-auto text-xs text-mist">generated {when(r.createdAt)}</span>
+                  <span className="text-xs text-mist">{r.sentToTelegram ? "enviado a Telegram" : "solo en la BD"}</span>
+                  <span className="ml-auto text-xs text-mist">generado {when(r.createdAt)}</span>
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-6">
-                  <div><div className="text-xs text-mist">Paper PnL (day)</div><PnlText value={r.paperPnl} /></div>
-                  <div><div className="text-xs text-mist">Win rate</div>{pct(r.winRate)}</div>
-                  <div><div className="text-xs text-mist">Open</div>{r.openPositions}</div>
-                  <div><div className="text-xs text-mist">Signals</div>{r.newSignals}</div>
-                  <div><div className="text-xs text-mist">Copied / watched</div>{r.copiedSignals} / {r.watchedSignals}</div>
-                  <div><div className="text-xs text-mist">Skipped</div>{r.skippedSignals}</div>
+                  <div><div className="text-xs text-mist">PnL en papel (día)</div><PnlText value={r.paperPnl} /></div>
+                  <div><div className="text-xs text-mist">Tasa acierto</div>{pct(r.winRate)}</div>
+                  <div><div className="text-xs text-mist">Abiertas</div>{r.openPositions}</div>
+                  <div><div className="text-xs text-mist">Señales</div>{r.newSignals}</div>
+                  <div><div className="text-xs text-mist">Copiadas / vigiladas</div>{r.copiedSignals} / {r.watchedSignals}</div>
+                  <div><div className="text-xs text-mist">Descartadas</div>{r.skippedSignals}</div>
                 </div>
 
                 <div className="mt-3 grid gap-3 text-xs md:grid-cols-3">
                   <div>
-                    <div className="mb-1 font-semibold text-mist">Best wallets</div>
+                    <div className="mb-1 font-semibold text-mist">Mejores billeteras</div>
                     {best.length ? best.map((w) => (
                       <div key={w.walletAddress}>{shortAddr(w.walletAddress)} · <PnlText value={w.totalPnl} /> ({w.tradeCount})</div>
                     )) : <span className="text-mist">—</span>}
                   </div>
                   <div>
-                    <div className="mb-1 font-semibold text-mist">Worst wallets</div>
+                    <div className="mb-1 font-semibold text-mist">Peores billeteras</div>
                     {worst.length ? worst.map((w) => (
                       <div key={w.walletAddress}>{shortAddr(w.walletAddress)} · <PnlText value={w.totalPnl} /> ({w.tradeCount})</div>
                     )) : <span className="text-mist">—</span>}
                   </div>
                   <div>
-                    <div className="mb-1 font-semibold text-mist">Rule updates</div>
-                    {ruleChanges.length ? ruleChanges.map((c, i) => <div key={i}>{c.reason}</div>) : <span className="text-mist">none</span>}
+                    <div className="mb-1 font-semibold text-mist">Cambios de reglas</div>
+                    {ruleChanges.length ? ruleChanges.map((c, i) => <div key={i}>{c.reason}</div>) : <span className="text-mist">ninguno</span>}
                   </div>
                 </div>
 
                 <details className="mt-3">
-                  <summary className="cursor-pointer text-xs text-accent">Full report text</summary>
+                  <summary className="cursor-pointer text-xs text-accent">Texto completo del reporte</summary>
                   <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-panel2 p-3 text-xs leading-5 text-mist">{r.summary}</pre>
                 </details>
               </Card>

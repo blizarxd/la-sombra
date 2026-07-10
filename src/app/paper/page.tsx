@@ -28,34 +28,34 @@ export default function PaperTradesPage() {
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Paper Trades</h1>
+        <h1 className="text-xl font-bold">Trades en papel</h1>
         <p className="text-sm text-mist">
-          Simulated positions ($5–$20 by confidence). Fills walk the real ask side; exits are valued at the bid — the spread is paid, like in reality.
+          Posiciones simuladas ($5–$20 según confianza). Las entradas se llenan al ask real; las salidas se valoran al bid — se paga el spread, como en la realidad.
         </p>
       </header>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Realized PnL" value={money(realized, { sign: true })} tone={realized >= 0 ? "profit" : "loss"} />
-        <Stat label="Unrealized PnL" value={money(unrealized, { sign: true })} tone={unrealized >= 0 ? "profit" : "loss"} />
-        <Stat label="Fill rate (realism)" value={pct(fill.fillRate)} hint={`${fill.filled}/${fill.copyDecisions} copy decisions filled, ${fill.unfillable} unfillable`} />
-        <Stat label="Spread cost paid" value={money(spreadPaid)} hint="honesty tax across all entries" />
+        <Stat label="PnL realizado" value={money(realized, { sign: true })} tone={realized >= 0 ? "profit" : "loss"} />
+        <Stat label="PnL no realizado" value={money(unrealized, { sign: true })} tone={unrealized >= 0 ? "profit" : "loss"} />
+        <Stat label="Tasa de llenado (realismo)" value={pct(fill.fillRate)} hint={`${fill.filled}/${fill.copyDecisions} decisiones de copia llenadas, ${fill.unfillable} sin llenar`} />
+        <Stat label="Costo de spread pagado" value={money(spreadPaid)} hint="impuesto de honestidad en todas las entradas" />
       </div>
 
       {trades.length === 0 ? (
-        <Empty>No paper trades yet. They are created by <code className="text-accent">npm run score:trades</code> when a signal clears the copy threshold.</Empty>
+        <Empty>Aún no hay trades en papel. Los crea <code className="text-accent">npm run score:trades</code> cuando una señal supera el umbral de copia.</Empty>
       ) : (
         <Table>
           <thead>
             <tr>
-              <Th>Opened</Th>
-              <Th>Market</Th>
-              <Th>Wallet</Th>
-              <Th className="text-right">Size</Th>
-              <Th className="text-right">Entry</Th>
-              <Th className="text-right">Current</Th>
+              <Th>Abierto</Th>
+              <Th>Mercado</Th>
+              <Th>Billetera</Th>
+              <Th className="text-right">Tamaño</Th>
+              <Th className="text-right">Entrada</Th>
+              <Th className="text-right">Actual</Th>
               <Th className="text-right">PnL</Th>
-              <Th>Status</Th>
-              <Th>Reason for entering</Th>
+              <Th>Estado</Th>
+              <Th>Motivo de entrada</Th>
             </tr>
           </thead>
           <tbody>

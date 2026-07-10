@@ -22,33 +22,33 @@ export default function PerformancePage() {
   const fill = getFillRateStats(db);
 
   const groups = [
-    { name: "Bot-filtered (paper copies)", g: bench.botFiltered, star: true },
-    { name: "Blind copy (every signal, $10 each)", g: bench.blindCopy },
-    { name: "Watchlist only (hypothetical)", g: bench.watchlistOnly },
-    { name: "Skipped (hypothetical)", g: bench.skippedOnly },
+    { name: "Filtrado por el bot (copias en papel)", g: bench.botFiltered, star: true },
+    { name: "Copia ciega (cada señal, $10 c/u)", g: bench.blindCopy },
+    { name: "Solo vigilancia (hipotético)", g: bench.watchlistOnly },
+    { name: "Descartadas (hipotético)", g: bench.skippedOnly },
   ];
 
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Performance</h1>
-        <p className="text-sm text-mist">Paper PnL, win rates and the benchmark that matters: does filtering beat blind copying?</p>
+        <h1 className="text-xl font-bold">Rendimiento</h1>
+        <p className="text-sm text-mist">PnL en papel, tasas de acierto y el benchmark que importa: ¿filtrar le gana a copiar a ciegas?</p>
       </header>
 
-      <Card title="Cumulative paper PnL (hourly marks)">
+      <Card title="PnL en papel acumulado (marcas por hora)">
         <PnlChart points={series} />
       </Card>
 
-      <Card title="Bot-filtered vs blind leaderboard copy">
+      <Card title="Filtrado por el bot vs copia ciega del leaderboard">
         <Table>
           <thead>
             <tr>
-              <Th>Strategy</Th>
-              <Th className="text-right">Signals</Th>
-              <Th className="text-right">Resolved</Th>
-              <Th className="text-right">Win rate</Th>
-              <Th className="text-right">Avg PnL/trade</Th>
-              <Th className="text-right">Total PnL</Th>
+              <Th>Estrategia</Th>
+              <Th className="text-right">Señales</Th>
+              <Th className="text-right">Resueltas</Th>
+              <Th className="text-right">Tasa acierto</Th>
+              <Th className="text-right">PnL prom./trade</Th>
+              <Th className="text-right">PnL total</Th>
             </tr>
           </thead>
           <tbody>
@@ -65,29 +65,29 @@ export default function PerformancePage() {
           </tbody>
         </Table>
         <div className="mt-3 text-sm">
-          Verdict:{" "}
+          Veredicto:{" "}
           {bench.botBeatsBlind === null ? (
-            <span className="text-mist">not enough resolved data yet</span>
+            <span className="text-mist">aún no hay datos resueltos suficientes</span>
           ) : bench.botBeatsBlind ? (
-            <span className="font-semibold text-profit">bot filter is adding value over blind copying</span>
+            <span className="font-semibold text-profit">el filtro del bot aporta valor sobre copiar a ciegas</span>
           ) : (
-            <span className="font-semibold text-loss">blind copying is ahead — the filter is costing money</span>
+            <span className="font-semibold text-loss">copiar a ciegas va adelante — el filtro está costando dinero</span>
           )}
         </div>
       </Card>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <Stat label="Missed winners" value={String(bench.missedWinners)} tone={bench.missedWinners > 0 ? "watch" : "neutral"} hint="skipped/watchlisted signals that won" />
-        <Stat label="Avoided losers" value={String(bench.avoidedLosers)} tone="profit" hint="skips that would have lost" />
-        <Stat label="Bad copies" value={String(bench.badCopies)} tone={bench.badCopies > 0 ? "loss" : "neutral"} />
-        <Stat label="Good skips" value={String(bench.goodSkips)} tone="profit" />
-        <Stat label="Fill rate" value={pct(fill.fillRate)} hint={`${fill.unfillable} unfillable copy attempts`} />
+        <Stat label="Ganadoras perdidas" value={String(bench.missedWinners)} tone={bench.missedWinners > 0 ? "watch" : "neutral"} hint="señales descartadas/vigiladas que ganaron" />
+        <Stat label="Perdedoras evitadas" value={String(bench.avoidedLosers)} tone="profit" hint="descartes que habrían perdido" />
+        <Stat label="Malas copias" value={String(bench.badCopies)} tone={bench.badCopies > 0 ? "loss" : "neutral"} />
+        <Stat label="Buenos descartes" value={String(bench.goodSkips)} tone="profit" />
+        <Stat label="Tasa de llenado" value={pct(fill.fillRate)} hint={`${fill.unfillable} intentos de copia sin llenar`} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Performance by wallet">
+        <Card title="Rendimiento por billetera">
           {byWallet.length === 0 ? (
-            <Empty>No paper trades yet.</Empty>
+            <Empty>Aún no hay trades en papel.</Empty>
           ) : (
             <ul className="space-y-2 text-sm">
               {byWallet.map((w) => (
@@ -103,9 +103,9 @@ export default function PerformancePage() {
             </ul>
           )}
         </Card>
-        <Card title="Performance by category">
+        <Card title="Rendimiento por categoría">
           {byCategory.length === 0 ? (
-            <Empty>No paper trades yet.</Empty>
+            <Empty>Aún no hay trades en papel.</Empty>
           ) : (
             <ul className="space-y-2 text-sm">
               {byCategory.map((c) => (
@@ -120,7 +120,7 @@ export default function PerformancePage() {
           )}
         </Card>
       </div>
-      <div className="text-xs text-mist">Hypothetical groups assume ${10} per signal at detected price; totals are not directly comparable to sized paper trades — compare avg PnL and win rate.</div>
+      <div className="text-xs text-mist">Los grupos hipotéticos asumen ${10} por señal al precio detectado; los totales no son directamente comparables con los trades en papel dimensionados — compara el PnL promedio y la tasa de acierto.</div>
     </div>
   );
 }
