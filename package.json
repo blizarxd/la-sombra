@@ -17,6 +17,7 @@
     "review:outcomes": "tsx src/scripts/review-outcomes.ts",
     "update:rules": "tsx src/scripts/update-rules.ts",
     "report:daily": "tsx src/scripts/report-daily.ts",
+    "operator:tick": "tsx src/scripts/operator-tick.ts",
     "verify:apis": "tsx src/scripts/verify-apis.ts",
     "test": "vitest run"
   },
