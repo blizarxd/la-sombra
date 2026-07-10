@@ -1,5 +1,5 @@
-import { asc, eq } from "drizzle-orm";
-import { decisionJournal, marketSnapshots, observedTrades, walletProfiles } from "@/db/schema";
+import { and, asc, eq } from "drizzle-orm";
+import { decisionJournal, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { newId } from "@/lib/ids";
@@ -138,9 +138,27 @@ runScript("score:trades", async (db) => {
     const reasons = [...result.reasons];
     const journalId = newId();
     let filled = false;
+    let decision = result.decision;
+
+    // Exposure guard: never stack OPEN paper positions on the same
+    // market/outcome — a wallet re-buying (or a second wallet on the same
+    // market) must not multiply simulated exposure.
+    if (decision === "paper_copy") {
+      const dupConds = [eq(paperTrades.status, "open"), eq(paperTrades.marketId, obs.marketId)];
+      if (obs.outcome) dupConds.push(eq(paperTrades.outcome, obs.outcome));
+      const openAlready = db
+        .select({ id: paperTrades.id })
+        .from(paperTrades)
+        .where(and(...dupConds))
+        .get();
+      if (openAlready) {
+        decision = "skip";
+        reasons.push("exposure guard: an open paper position already exists on this market/outcome");
+      }
+    }
 
     // --- paper copy with realistic fill simulation ---
-    if (result.decision === "paper_copy" && result.simulatedPositionSize && book) {
+    if (decision === "paper_copy" && result.simulatedPositionSize && book) {
       const open = openPaperTrade(db, {
         decisionJournalId: journalId,
         walletAddress: obs.walletAddress,
@@ -171,11 +189,11 @@ runScript("score:trades", async (db) => {
         risks.push(`UNFILLABLE: ${open.fill.reason} — no paper trade opened (fill-rate realism)`);
         counts.unfillable++;
       }
-    } else if (result.decision === "paper_copy" && !book) {
+    } else if (decision === "paper_copy" && !book) {
       risks.push("UNFILLABLE: no order book available — no paper trade opened");
       counts.unfillable++;
     } else {
-      counts[result.decision]++;
+      counts[decision]++;
     }
 
     db.insert(decisionJournal)
@@ -184,7 +202,7 @@ runScript("score:trades", async (db) => {
         observedTradeId: obs.id,
         walletAddress: obs.walletAddress,
         marketId: obs.marketId,
-        decision: result.decision,
+        decision,
         copyScore: result.copyScore,
         confidence: result.confidence,
         reasonsJson: JSON.stringify(reasons),
