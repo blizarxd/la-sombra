@@ -47,22 +47,22 @@ runScript("report:daily", async (db) => {
   const worstTrade = resolvedToday.slice().sort((a, b) => (a.realizedPnl ?? 0) - (b.realizedPnl ?? 0))[0];
 
   const beatBlind =
-    bench.botBeatsBlind === null ? "not enough resolved data yet" : bench.botBeatsBlind ? "YES" : "NO";
+    bench.botBeatsBlind === null ? "aún sin datos resueltos suficientes" : bench.botBeatsBlind ? "SÍ" : "NO";
 
   const lines = [
-    `La Sombra — EOD report ${today} (PAPER ONLY)`,
-    `Paper PnL today: $${pnlToday.toFixed(2)} | total: $${stats.totalPaperPnl.toFixed(2)} (realized $${stats.realizedPnl.toFixed(2)} + open $${stats.unrealizedPnl.toFixed(2)})`,
-    `Win rate (resolved): ${stats.winRate === null ? "n/a" : `${(stats.winRate * 100).toFixed(0)}%`} over ${stats.resolvedCount} trades`,
-    `Signals today: ${todaysDecisions.length} (${copied} copied, ${watched} watchlist, ${skipped} skipped)`,
-    `Open positions: ${stats.openPositions.length} | tracked wallets: ${stats.trackedWallets}`,
-    bestTrade ? `Best trade today: ${(bestTrade.marketQuestion ?? bestTrade.marketId).slice(0, 60)} $${(bestTrade.realizedPnl ?? 0).toFixed(2)}` : "Best trade today: none resolved",
-    worstTrade && worstTrade !== bestTrade ? `Worst trade today: ${(worstTrade.marketQuestion ?? worstTrade.marketId).slice(0, 60)} $${(worstTrade.realizedPnl ?? 0).toFixed(2)}` : "",
-    `Bot-filtered beat blind copy: ${beatBlind} (bot avg $${bench.botFiltered.avgPnl ?? "n/a"} vs blind avg $${bench.blindCopy.avgPnl ?? "n/a"} per trade)`,
-    `Missed winners: ${bench.missedWinners} | avoided losers: ${bench.avoidedLosers} | bad copies: ${bench.badCopies}`,
+    `La Sombra — reporte de cierre ${today} (SOLO PAPEL)`,
+    `PnL en papel hoy: $${pnlToday.toFixed(2)} | total: $${stats.totalPaperPnl.toFixed(2)} (realizado $${stats.realizedPnl.toFixed(2)} + abierto $${stats.unrealizedPnl.toFixed(2)})`,
+    `Tasa de acierto (resueltos): ${stats.winRate === null ? "n/d" : `${(stats.winRate * 100).toFixed(0)}%`} en ${stats.resolvedCount} trades`,
+    `Señales hoy: ${todaysDecisions.length} (${copied} copiadas, ${watched} en vigilancia, ${skipped} descartadas)`,
+    `Posiciones abiertas: ${stats.openPositions.length} | billeteras seguidas: ${stats.trackedWallets}`,
+    bestTrade ? `Mejor trade hoy: ${(bestTrade.marketQuestion ?? bestTrade.marketId).slice(0, 60)} $${(bestTrade.realizedPnl ?? 0).toFixed(2)}` : "Mejor trade hoy: ninguno resuelto",
+    worstTrade && worstTrade !== bestTrade ? `Peor trade hoy: ${(worstTrade.marketQuestion ?? worstTrade.marketId).slice(0, 60)} $${(worstTrade.realizedPnl ?? 0).toFixed(2)}` : "",
+    `Filtrado por el bot le gana a la copia ciega: ${beatBlind} (prom. bot $${bench.botFiltered.avgPnl ?? "n/d"} vs prom. ciega $${bench.blindCopy.avgPnl ?? "n/d"} por trade)`,
+    `Ganadoras perdidas: ${bench.missedWinners} | perdedoras evitadas: ${bench.avoidedLosers} | malas copias: ${bench.badCopies}`,
     todaysChanges.length
-      ? `Rule changes today: ${todaysChanges.length} — ${todaysChanges.map((c) => c.reason).join(" | ").slice(0, 200)}`
-      : "Rule changes today: none",
-    `Watch tomorrow: ${stats.openPositions.length} open positions${best[0] ? `; top wallet ${best[0].walletAddress.slice(0, 10)}… ($${best[0].totalPnl})` : ""}`,
+      ? `Cambios de reglas hoy: ${todaysChanges.length} — ${todaysChanges.map((c) => c.reason).join(" | ").slice(0, 200)}`
+      : "Cambios de reglas hoy: ninguno",
+    `Vigilar mañana: ${stats.openPositions.length} posiciones abiertas${best[0] ? `; mejor billetera ${best[0].walletAddress.slice(0, 10)}… ($${best[0].totalPnl})` : ""}`,
   ].filter(Boolean);
 
   const summary = lines.join("\n");
