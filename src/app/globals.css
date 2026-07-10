@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0b0f14;
+  --color-panel: #11161d;
+  --color-panel2: #161d26;
+  --color-edge: #232c38;
+  --color-mist: #8b98a9;
+  --color-bright: #e8eef5;
+  --color-profit: #34d399;
+  --color-loss: #fb7185;
+  --color-watch: #fbbf24;
+  --color-accent: #7dd3fc;
+}
+
+body {
+  background-color: var(--color-ink);
+  color: var(--color-bright);
+  font-feature-settings: "tnum";
+}
+
+::selection {
+  background: #7dd3fc33;
+}
