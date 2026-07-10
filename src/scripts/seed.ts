@@ -54,13 +54,13 @@ runScript("seed", async (db) => {
     { addr: "0xdemo000000000000000000000000000000000005", label: "[DEMO] SlowGrinder", status: "watch" as const, roi: 0.08, cons: 70, copy: 62, ohw: 0, global: 52, cat: "Crypto", win: 0.55, n: 51, resolved: 30 },
     { addr: "0xdemo000000000000000000000000000000000006", label: "[DEMO] FreshFace", status: "watch" as const, roi: 0.15, cons: 35, copy: 50, ohw: 25, global: 45, cat: "Politics", win: 0.5, n: 8, resolved: 4 },
   ];
-  for (const [i, w] of wallets.entries()) {
+  for (const w of wallets) {
     db.insert(walletProfiles)
       .values({
         id: newId(),
         address: w.addr,
         label: w.label,
-        sourceRank: i + 1,
+        sourceRank: null, // demo wallets never enter the real ranking/profiling queue
         status: w.status,
         roi30d: w.roi,
         consistencyScore: w.cons,

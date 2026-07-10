@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { observedTrades, walletProfiles } from "@/db/schema";
-import { fetchWalletTrades } from "@/lib/adapters";
+import { fetchWalletTrades, isRealAddress } from "@/lib/adapters";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { runScript } from "./_runner";
@@ -21,6 +21,10 @@ runScript("monitor:trades", async (db) => {
   let newCount = 0;
 
   for (const wallet of tracked) {
+    if (!isRealAddress(wallet.address)) {
+      log.warn(`skipping ${wallet.address} — not a real address (demo data is never monitored)`);
+      continue;
+    }
     const sinceMs = wallet.lastScannedAt
       ? Math.max(wallet.lastScannedAt.getTime() - 15 * 60 * 1000, Date.now() - 24 * 3600 * 1000)
       : Date.now() - defaultLookbackMs;

@@ -1,6 +1,6 @@
 import { asc, eq, isNull, or, lt, and, isNotNull } from "drizzle-orm";
 import { walletProfiles } from "@/db/schema";
-import { fetchMarketsByConditionIds, fetchWalletTrades } from "@/lib/adapters";
+import { fetchMarketsByConditionIds, fetchWalletTrades, isRealAddress } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
 import { log } from "@/lib/logger";
 import { profileWallet } from "@/lib/profiler";
@@ -43,6 +43,11 @@ runScript("scan:wallets", async (db) => {
 
   for (const wallet of candidates) {
     const now = new Date();
+    if (!isRealAddress(wallet.address)) {
+      log.warn(`skipping ${wallet.address} — not a real address (demo data is never profiled)`);
+      db.update(walletProfiles).set({ lastScannedAt: now, updatedAt: now }).where(eq(walletProfiles.id, wallet.id)).run();
+      continue;
+    }
     try {
       const trades = await fetchWalletTrades(wallet.address, { limit: 500, sinceMs: thirtyDaysAgo });
       const conditionIds = [

@@ -84,10 +84,26 @@ export async function fetchLeaderboard(opts?: {
 // Wallet trade history
 // ---------------------------------------------------------------------------
 
+/** Real Polymarket proxy wallets are 20-byte hex addresses. */
+export function isRealAddress(address: string): boolean {
+  return /^0x[0-9a-f]{40}$/i.test(address);
+}
+
 export async function fetchWalletTrades(
   address: string,
   opts?: { limit?: number; sinceMs?: number },
 ): Promise<WalletTrade[]> {
+  if (!isRealAddress(address)) {
+    // Verified live 2026-07-10: data-api silently IGNORES an invalid `user`
+    // param and returns the global trade feed. Refuse instead of polluting
+    // the research DB with other people's trades.
+    throw new AdapterError(
+      "polymarket-data-api",
+      `${DATA_API()}/trades?user=${address}`,
+      null,
+      `refusing to fetch trades for non-hex address "${address}" (the API would return the global feed)`,
+    );
+  }
   const maxTotal = opts?.limit ?? 500;
   const sinceMs = opts?.sinceMs ?? 0;
   const pageSize = 100;
@@ -101,6 +117,8 @@ export async function fetchWalletTrades(
     if (data.length === 0) break;
     let reachedOld = false;
     for (const row of data as any[]) {
+      // Defensive: keep only rows that actually belong to the queried wallet.
+      if (row.proxyWallet && String(row.proxyWallet).toLowerCase() !== address.toLowerCase()) continue;
       const tsMs = (num(row.timestamp) ?? 0) * 1000;
       if (sinceMs && tsMs < sinceMs) {
         reachedOld = true;
@@ -109,7 +127,7 @@ export async function fetchWalletTrades(
       const price = num(row.price) ?? 0;
       const shares = num(row.size) ?? 0;
       trades.push({
-        walletAddress: String(row.proxyWallet ?? address).toLowerCase(),
+        walletAddress: address.toLowerCase(),
         marketId: String(row.conditionId ?? row.market ?? row.slug ?? ""),
         conditionId: row.conditionId ? String(row.conditionId) : null,
         tokenId: row.asset ? String(row.asset) : null,
