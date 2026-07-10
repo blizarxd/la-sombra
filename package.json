@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:prod": "npm run db:migrate && next start -H 0.0.0.0 -p ${PORT:-3000}",
     "db:migrate": "tsx src/db/migrate.ts",
     "seed": "tsx src/scripts/seed.ts",
     "scan:leaderboard": "tsx src/scripts/scan-leaderboard.ts",
@@ -26,7 +27,8 @@
     "drizzle-orm": "^0.44.2",
     "next": "^15.4.5",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tsx": "^4.20.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.11",
@@ -36,7 +38,6 @@
     "@types/react-dom": "^19.1.0",
     "drizzle-kit": "^0.31.4",
     "tailwindcss": "^4.1.11",
-    "tsx": "^4.20.3",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
