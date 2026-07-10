@@ -1,0 +1,42 @@
+{
+  "name": "la-sombra",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Self-improving Polymarket copy-trading RESEARCH bot. Paper trading only — no real orders, ever.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "db:migrate": "tsx src/db/migrate.ts",
+    "seed": "tsx src/scripts/seed.ts",
+    "scan:leaderboard": "tsx src/scripts/scan-leaderboard.ts",
+    "scan:wallets": "tsx src/scripts/scan-wallets.ts",
+    "monitor:trades": "tsx src/scripts/monitor-trades.ts",
+    "score:trades": "tsx src/scripts/score-trades.ts",
+    "paper:update-pnl": "tsx src/scripts/paper-update-pnl.ts",
+    "review:outcomes": "tsx src/scripts/review-outcomes.ts",
+    "update:rules": "tsx src/scripts/update-rules.ts",
+    "report:daily": "tsx src/scripts/report-daily.ts",
+    "verify:apis": "tsx src/scripts/verify-apis.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "drizzle-orm": "^0.44.2",
+    "next": "^15.4.5",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.11",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "drizzle-kit": "^0.31.4",
+    "tailwindcss": "^4.1.11",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
