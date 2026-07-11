@@ -26,6 +26,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.111.0",
     "better-sqlite3": "^12.2.0",
     "drizzle-orm": "^0.44.2",
     "next": "^15.4.5",

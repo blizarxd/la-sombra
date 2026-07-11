@@ -269,6 +269,29 @@ export const ruleChanges = sqliteTable("rule_changes", {
 });
 
 // ---------------------------------------------------------------------------
+// AI analyst runs — the LLM expert's read of the data cutoff (recommendations
+// by level, what it likes/dislikes, and any bounded changes it auto-applied).
+// ---------------------------------------------------------------------------
+export const aiAnalyses = sqliteTable(
+  "ai_analyses",
+  {
+    id: text("id").primaryKey(),
+    model: text("model").notNull(),
+    dataCutoff: text("data_cutoff"), // human-readable description of the snapshot
+    summary: text("summary").notNull(), // the expert narrative
+    likesJson: text("likes_json"), // string[] — what it likes
+    dislikesJson: text("dislikes_json"), // string[] — what it doesn't like
+    recommendationsJson: text("recommendations_json"), // full recommendation objects (by level/scope)
+    appliedChangesJson: text("applied_changes_json"), // bounded changes it auto-applied
+    confidence: text("confidence"), // baja | media | alta
+    tokensInput: integer("tokens_input"),
+    tokensOutput: integer("tokens_output"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("ai_analyses_created_idx").on(t.createdAt)],
+);
+
+// ---------------------------------------------------------------------------
 // Daily reports
 // ---------------------------------------------------------------------------
 export const dailyReports = sqliteTable(
