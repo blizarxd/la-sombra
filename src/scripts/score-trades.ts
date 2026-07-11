@@ -179,8 +179,9 @@ runScript("score:trades", async (db) => {
           const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
           const fillPrice =
             open.fill.avgFillPrice !== null ? `${(open.fill.avgFillPrice * 100).toFixed(1)}¢` : "?";
+          const liveTag = market && isInPlayTrade(obs.timestamp.getTime(), market) ? " ⚡ EN VIVO" : "";
           await sendTelegramMessage(
-            `🟢 <b>La Sombra — copia en PAPEL abierta</b>\n${q}\n` +
+            `🟢 <b>La Sombra — copia en PAPEL abierta</b>${liveTag}\n${q}\n` +
               `Billetera ${obs.walletAddress.slice(0, 10)}… · puntaje ${Math.round(result.copyScore)}\n` +
               `Entrada $${(result.simulatedPositionSize ?? 0).toFixed(2)} a ${fillPrice}`,
           );

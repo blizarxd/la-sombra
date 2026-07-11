@@ -27,30 +27,44 @@ const minutes = Number(process.env.OPERATOR_INTERVAL_MINUTES ?? 20);
 const intervalMs = Math.max(1, minutes) * 60_000;
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptsDir, "..", "..");
-const tickScript = path.join(scriptsDir, "operator-tick.ts");
 
-let running = false;
-function runTick(): void {
-  if (running) {
-    log.warn("[scheduler] previous tick still running — skipping this interval");
+// Optional fast live-observation loop: catch/classify in-play bets in near
+// real time. Off unless LIVE_MONITOR=1 (it hits the wallet-trades API more
+// often, so keep the interval sane).
+const liveEnabled = process.env.LIVE_MONITOR === "1";
+const liveMinutes = Math.max(1, Number(process.env.LIVE_MONITOR_MINUTES ?? 2));
+
+// One shared mutex: never run two child passes at once (avoids double-scoring
+// the same observed trades and keeps the API load bounded).
+let busy = false;
+function run(label: string, scriptFile: string): void {
+  if (busy) {
+    log.warn(`[scheduler] ${label} skipped — a pass is already running`);
     return;
   }
-  running = true;
-  log.info("[scheduler] launching operator tick");
+  busy = true;
+  log.info(`[scheduler] launching ${label}`);
   execFile(
     process.execPath,
-    ["--import", "tsx", tickScript],
+    ["--import", "tsx", path.join(scriptsDir, scriptFile)],
     { cwd: projectRoot, maxBuffer: 32 * 1024 * 1024 },
     (err, stdout, stderr) => {
-      running = false;
+      busy = false;
       if (stdout) process.stdout.write(stdout);
       if (stderr) process.stderr.write(stderr);
-      if (err) log.warn(`[scheduler] tick exited non-zero: ${err.message}`);
-      else log.info("[scheduler] tick finished");
+      if (err) log.warn(`[scheduler] ${label} exited non-zero: ${err.message}`);
+      else log.info(`[scheduler] ${label} finished`);
     },
   );
 }
 
-log.info(`[scheduler] operator scheduler active — every ${minutes} min (PAPER ONLY)`);
-setTimeout(runTick, 15_000); // let the web server settle first
-setInterval(runTick, intervalMs);
+log.info(
+  `[scheduler] active — operator every ${minutes} min` +
+    (liveEnabled ? `, live observation every ${liveMinutes} min` : "") +
+    " (PAPER ONLY)",
+);
+setTimeout(() => run("operator tick", "operator-tick.ts"), 15_000); // settle first
+setInterval(() => run("operator tick", "operator-tick.ts"), intervalMs);
+if (liveEnabled) {
+  setInterval(() => run("live tick", "live-tick.ts"), liveMinutes * 60_000);
+}
