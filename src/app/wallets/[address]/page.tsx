@@ -100,6 +100,51 @@ export default async function WalletProfilePage({ params }: { params: Promise<{ 
         </Card>
       </div>
 
+      <Card title="Rendimiento en vivo (in-play) vs general">
+        {wallet.liveResolvedCount30d == null ? (
+          <div className="text-sm text-mist">
+            Aún sin datos en vivo — se calcula al re-perfilar la billetera con la hora de inicio de cada partido.
+          </div>
+        ) : wallet.liveResolvedCount30d === 0 ? (
+          <div className="text-sm text-mist">
+            Esta billetera no apostó en vivo (0 trades in-play resueltos en 30d). Opera solo pre-partido.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div>
+              <div className="text-xs text-mist">Trades en vivo (30d)</div>
+              <div className="text-lg font-semibold">
+                {wallet.liveTradeCount30d ?? 0}
+                <span className="text-xs font-normal text-mist"> · {wallet.liveResolvedCount30d} resueltos</span>
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-mist">Acierto en vivo</div>
+              <div className={`text-lg font-semibold ${(wallet.liveWinRate30d ?? 0) >= (wallet.winRate30d ?? 0) ? "text-profit" : "text-loss"}`}>
+                {pct(wallet.liveWinRate30d)}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-mist">Acierto general</div>
+              <div className="text-lg font-semibold text-bright">{pct(wallet.winRate30d)}</div>
+            </div>
+            <div>
+              <div className="text-xs text-mist">ROI en vivo</div>
+              <div className={`text-lg font-semibold ${(wallet.liveRoi30d ?? 0) >= 0 ? "text-profit" : "text-loss"}`}>
+                {pct(wallet.liveRoi30d)}
+              </div>
+            </div>
+          </div>
+        )}
+        {wallet.liveResolvedCount30d != null && wallet.liveResolvedCount30d >= 5 &&
+        (wallet.liveWinRate30d ?? 0) >= 0.55 &&
+        (wallet.liveWinRate30d ?? 0) >= (wallet.winRate30d ?? 0) ? (
+          <div className="mt-3 rounded-lg border border-emerald-800 bg-emerald-950/40 p-2 text-xs text-profit">
+            ⚡ Edge en vivo: gana más apostando con el juego en marcha que pre-partido — habilidad genuina, no solo suerte pre-game.
+          </div>
+        ) : null}
+      </Card>
+
       <Card title={`Trades observados recientes (${recent.length})`}>
         {recent.length === 0 ? (
           <div className="text-sm text-mist">Aún no hay trades observados — el monitor los capta mientras la billetera está seguida.</div>

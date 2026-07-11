@@ -174,7 +174,9 @@ function toMarketInfo(row: any): MarketInfo {
     liquidity: num(row.liquidityNum ?? row.liquidity),
     volume: num(row.volumeNum ?? row.volume),
     endDateMs: row.endDate ? Date.parse(String(row.endDate)) || null : null,
-    gameStartTimeMs: parseGameStart(row.gameStartTime ?? row.game_start_time ?? row.startDate),
+    // Only trust an explicit game/event start — NOT startDate (that's market
+    // creation, which would falsely flag pre-game trades as in-play).
+    gameStartTimeMs: parseGameStart(row.gameStartTime ?? row.game_start_time),
     closed,
     resolved: closed && winningOutcomeIndex !== null,
     winningOutcomeIndex,

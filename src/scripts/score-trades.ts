@@ -1,6 +1,6 @@
 import { and, asc, eq } from "drizzle-orm";
 import { decisionJournal, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
-import { fetchMarketsByConditionIds, fetchOrderBook } from "@/lib/adapters";
+import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -223,8 +223,9 @@ runScript("score:trades", async (db) => {
       .run();
 
     const detectedPrice = obs.side === "BUY" ? (book?.bestAsk ?? null) : (book?.bestBid ?? null);
+    const inPlay = market ? isInPlayTrade(obs.timestamp.getTime(), market) : null;
     db.update(observedTrades)
-      .set({ scored: true, detectedPrice })
+      .set({ scored: true, detectedPrice, inPlay })
       .where(eq(observedTrades.id, obs.id))
       .run();
 

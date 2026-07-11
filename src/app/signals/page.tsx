@@ -63,6 +63,11 @@ export default function SignalsPage() {
                   <Td className="whitespace-nowrap text-mist">{when(s.timestamp)}</Td>
                   <Td className="max-w-80">
                     {s.marketQuestion ?? s.marketId}
+                    {s.inPlay ? (
+                      <span className="ml-1 rounded-full border border-orange-700 bg-orange-950/50 px-1.5 py-0.5 text-[10px] font-semibold text-orange-300">
+                        ⚡ EN VIVO
+                      </span>
+                    ) : null}
                     {isDemo(s.marketQuestion) ? <span className="ml-1"><DemoTag /></span> : null}
                     <div className="text-[11px] text-mist">{s.marketCategory ?? "—"} · {s.outcome ?? ""} · {s.side}</div>
                   </Td>
