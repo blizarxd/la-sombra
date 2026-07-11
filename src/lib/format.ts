@@ -1,5 +1,12 @@
 /** Display formatters shared by dashboard pages. */
 
+/**
+ * Project timezone: everything (dashboard times + the morning report hour) is
+ * shown in UTC-4 so it always matches Johan's clock, regardless of where the
+ * server runs. America/Caracas is a permanent UTC-4 zone (no daylight saving).
+ */
+export const APP_TZ = "America/Caracas";
+
 export function money(v: number | null | undefined, opts?: { sign?: boolean }): string {
   if (v === null || v === undefined || Number.isNaN(v)) return "—";
   const sign = opts?.sign && v > 0 ? "+" : "";
@@ -35,6 +42,7 @@ export function when(d: Date | number | null | undefined): string {
     hour: "2-digit",
     minute: "2-digit",
     hour12: false,
+    timeZone: APP_TZ,
   });
 }
 

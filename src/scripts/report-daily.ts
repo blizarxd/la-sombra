@@ -3,6 +3,7 @@ import { dailyReports, decisionJournal, observedTrades, paperTrades, ruleChanges
 import { hypotheticalPnl } from "@/lib/benchmarks";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
+import { APP_TZ } from "@/lib/format";
 import { getBenchmarkSummary, getOverviewStats, getWalletPaperPerformance } from "@/lib/queries";
 import { sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
 import { runScript } from "./_runner";
@@ -12,7 +13,13 @@ import { runScript } from "./_runner";
  * the dashboard). Sent to Telegram ONLY if TELEGRAM_* env vars are set.
  */
 runScript("report:daily", async (db) => {
-  const today = new Date().toISOString().slice(0, 10);
+  // Report date in the project timezone (UTC-4) so the label matches Johan's day.
+  const today = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
 

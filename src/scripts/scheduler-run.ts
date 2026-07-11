@@ -2,7 +2,25 @@ import "../lib/env";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { APP_TZ } from "../lib/format";
 import { log } from "../lib/logger";
+
+/** Current {hour, dayKey} in the project timezone (UTC-4), server-TZ-independent. */
+function nowInAppTz(): { hour: number; dayKey: string } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return {
+    hour: Number(get("hour")),
+    dayKey: `${get("year")}-${get("month")}-${get("day")}`,
+  };
+}
 
 /**
  * Standalone operator scheduler for cloud (Railway) 24/7 running.
@@ -59,16 +77,14 @@ function run(label: string, scriptFile: string): void {
 }
 
 // Morning summary: send the daily report to Telegram once per day at a fixed
-// local hour. Uses the container's local time — set TZ in Railway (e.g.
-// TZ=America/Bogota) so "8" means 8am where you are. Fully autonomous.
+// hour in the project timezone (UTC-4) — independent of the container's TZ.
 const morningHour = Number(process.env.MORNING_REPORT_HOUR ?? 8);
 let lastMorningKey = "";
 function maybeMorningReport(): void {
-  const now = new Date();
-  const dayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
-  if (now.getHours() === morningHour && lastMorningKey !== dayKey) {
+  const { hour, dayKey } = nowInAppTz();
+  if (hour === morningHour && lastMorningKey !== dayKey) {
     lastMorningKey = dayKey;
-    log.info(`[scheduler] 🌅 morning summary (${morningHour}:00 local) — sending report`);
+    log.info(`[scheduler] 🌅 morning summary (${morningHour}:00 ${APP_TZ}) — sending report`);
     run("morning report", "report-daily.ts");
   }
 }
@@ -76,7 +92,7 @@ function maybeMorningReport(): void {
 log.info(
   `[scheduler] active — operator every ${minutes} min` +
     (liveEnabled ? `, live observation every ${liveMinutes} min` : "") +
-    `, morning report at ${morningHour}:00 local (PAPER ONLY)`,
+    `, morning report at ${morningHour}:00 ${APP_TZ} (PAPER ONLY)`,
 );
 setTimeout(() => run("operator tick", "operator-tick.ts"), 15_000); // settle first
 setInterval(() => run("operator tick", "operator-tick.ts"), intervalMs);

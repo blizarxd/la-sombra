@@ -33,7 +33,7 @@ export function PnlChart({
   const lineColor = last.pnl >= 0 ? "#34d399" : "#fb7185";
 
   const fmtDay = (t: number) =>
-    new Date(t).toLocaleDateString("es-ES", { month: "short", day: "numeric" });
+    new Date(t).toLocaleDateString("es-ES", { month: "short", day: "numeric", timeZone: "America/Caracas" });
 
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label="PnL en papel a lo largo del tiempo">
