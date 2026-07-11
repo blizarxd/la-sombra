@@ -174,11 +174,20 @@ function toMarketInfo(row: any): MarketInfo {
     liquidity: num(row.liquidityNum ?? row.liquidity),
     volume: num(row.volumeNum ?? row.volume),
     endDateMs: row.endDate ? Date.parse(String(row.endDate)) || null : null,
+    gameStartTimeMs: parseGameStart(row.gameStartTime ?? row.game_start_time ?? row.startDate),
     closed,
     resolved: closed && winningOutcomeIndex !== null,
     winningOutcomeIndex,
     raw: row,
   };
+}
+
+/** Parse a game/event start time (ISO or epoch) to ms, or null. */
+function parseGameStart(v: unknown): number | null {
+  if (v == null || v === "") return null;
+  if (typeof v === "number") return v > 1e12 ? v : v * 1000; // sec vs ms
+  const ms = Date.parse(String(v));
+  return Number.isNaN(ms) ? null : ms;
 }
 
 /**
@@ -209,6 +218,7 @@ function clobToMarketInfo(row: any): MarketInfo {
     liquidity: null, // not exposed by the CLOB metadata endpoint
     volume: null,
     endDateMs: row.end_date_iso ? Date.parse(String(row.end_date_iso)) || null : null,
+    gameStartTimeMs: parseGameStart(row.game_start_time ?? row.gameStartTime),
     closed,
     resolved: winningOutcomeIndex !== null,
     winningOutcomeIndex,

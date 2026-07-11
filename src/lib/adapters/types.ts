@@ -39,6 +39,8 @@ export interface MarketInfo {
   liquidity: number | null;
   volume: number | null;
   endDateMs: number | null;
+  /** Scheduled event/game start (sports). null for markets with no live phase. */
+  gameStartTimeMs: number | null;
   closed: boolean;
   resolved: boolean;
   /** For resolved markets: index into outcomes of the winner, if determinable. */
@@ -59,6 +61,20 @@ export interface OrderBook {
   bestAsk: number | null;
   spread: number | null;
   raw: unknown;
+}
+
+/**
+ * True when a trade was placed with the game/event already in progress
+ * (in-play / live betting). Requires a known game start time; markets with no
+ * live phase (gameStartTimeMs === null) are always treated as pre-game.
+ */
+export function isInPlayTrade(
+  tradeTimestampMs: number,
+  market: Pick<MarketInfo, "gameStartTimeMs"> | null | undefined,
+): boolean {
+  const start = market?.gameStartTimeMs ?? null;
+  if (start === null) return false;
+  return tradeTimestampMs >= start;
 }
 
 /** Error thrown when an upstream API fails. NEVER swallowed into fake data. */
