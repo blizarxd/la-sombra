@@ -88,6 +88,8 @@ export interface OpenPaperTradeInput {
   outcome: string | null;
   usdSize: number;
   book: OrderBook;
+  /** Ledger: "core" (default, main strategy) or "live" (in-play experiment). */
+  track?: "core" | "live";
   now?: Date;
 }
 
@@ -123,6 +125,7 @@ export function openPaperTrade(db: Db, input: OpenPaperTradeInput): OpenPaperTra
       unrealizedPnl: 0,
       realizedPnl: null,
       status: "open",
+      track: input.track ?? "core",
       openedAt: now,
     })
     .run();

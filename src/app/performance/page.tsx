@@ -86,7 +86,7 @@ export default function PerformancePage() {
         <Stat label="Tasa de llenado" value={pct(fill.fillRate)} hint={`${fill.unfillable} intentos de copia sin llenar`} />
       </div>
 
-      <Card title="Papel: copias en vivo (⚡ in-play) vs pre-partido">
+      <Card title="Libros en paralelo: ⚡ experimento en vivo vs estrategia principal">
         {inPlay.live.count === 0 && inPlay.preGame.count === 0 ? (
           <Empty>Aún no hay trades en papel para comparar.</Empty>
         ) : (
@@ -104,7 +104,7 @@ export default function PerformancePage() {
               </thead>
               <tbody>
                 <tr>
-                  <Td className="font-semibold text-orange-300">⚡ En vivo (in-play)</Td>
+                  <Td className="font-semibold text-orange-300">⚡ Experimento en vivo (libro aparte)</Td>
                   <Td className="text-right">{inPlay.live.count}</Td>
                   <Td className="text-right">{inPlay.live.resolvedCount}</Td>
                   <Td className="text-right">{pct(inPlay.live.winRate)}</Td>
@@ -112,7 +112,7 @@ export default function PerformancePage() {
                   <Td className="text-right font-semibold"><PnlText value={inPlay.live.totalPnl} /></Td>
                 </tr>
                 <tr>
-                  <Td className="font-semibold">Pre-partido</Td>
+                  <Td className="font-semibold">Estrategia principal (pre-partido)</Td>
                   <Td className="text-right">{inPlay.preGame.count}</Td>
                   <Td className="text-right">{inPlay.preGame.resolvedCount}</Td>
                   <Td className="text-right">{pct(inPlay.preGame.winRate)}</Td>
@@ -122,7 +122,9 @@ export default function PerformancePage() {
               </tbody>
             </Table>
             <div className="mt-3 text-xs text-mist">
-              Ambos grupos pasan las mismas reglas (banda de entrada, guardia de entrada tardía, liquidez). Compara con suficientes resueltas antes de sacar conclusiones — el edge en vivo suele morir por llegar tarde al precio.
+              Libros separados que nunca se mezclan: el experimento en vivo copia in-play con $5 fijos y sin guardia
+              de deriva (eso es lo que mide); la estrategia principal sigue intacta con todas sus reglas. Detalle del
+              experimento en la página ⚡ En Vivo.
             </div>
           </>
         )}

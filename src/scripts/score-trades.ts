@@ -81,6 +81,7 @@ runScript("score:trades", async (db) => {
 
     const timeToResolutionHours =
       market?.endDateMs != null ? (market.endDateMs - Date.now()) / 3600_000 : null;
+    const inPlay = market ? isInPlayTrade(obs.timestamp.getTime(), market) : null;
 
     // Liquidity: prefer market metadata; otherwise estimate from live book depth
     // (sum of resting notional on both sides).
@@ -144,7 +145,11 @@ runScript("score:trades", async (db) => {
     // market/outcome — a wallet re-buying (or a second wallet on the same
     // market) must not multiply simulated exposure.
     if (decision === "paper_copy") {
-      const dupConds = [eq(paperTrades.status, "open"), eq(paperTrades.marketId, obs.marketId)];
+      const dupConds = [
+        eq(paperTrades.status, "open"),
+        eq(paperTrades.track, "core"),
+        eq(paperTrades.marketId, obs.marketId),
+      ];
       if (obs.outcome) dupConds.push(eq(paperTrades.outcome, obs.outcome));
       const openAlready = db
         .select({ id: paperTrades.id })
@@ -179,7 +184,7 @@ runScript("score:trades", async (db) => {
           const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
           const fillPrice =
             open.fill.avgFillPrice !== null ? `${(open.fill.avgFillPrice * 100).toFixed(1)}¢` : "?";
-          const liveTag = market && isInPlayTrade(obs.timestamp.getTime(), market) ? " ⚡ EN VIVO" : "";
+          const liveTag = inPlay ? " ⚡ EN VIVO" : "";
           await sendTelegramMessage(
             `🟢 <b>La Sombra — copia en PAPEL abierta</b>${liveTag}\n${q}\n` +
               `Billetera ${obs.walletAddress.slice(0, 10)}… · puntaje ${Math.round(result.copyScore)}\n` +
@@ -195,6 +200,57 @@ runScript("score:trades", async (db) => {
       counts.unfillable++;
     } else {
       counts[decision]++;
+    }
+
+    // --- ⚡ LIVE EXPERIMENT (parallel ledger, track="live") ---
+    // Independently paper-copies IN-PLAY signals from quality wallets at a
+    // small fixed size, deliberately WITHOUT the late-entry drift guard (live
+    // prices move by nature — that is exactly what this ledger measures).
+    // It never touches core stats: everything core filters track='core'.
+    if (
+      inPlay === true &&
+      obs.side === "BUY" &&
+      book &&
+      (wallet?.globalScore ?? 0) >= rules.minWalletGlobalScore &&
+      book.bestAsk !== null &&
+      book.bestAsk >= rules.minEntryPrice &&
+      book.bestAsk <= rules.maxEntryPrice &&
+      (book.spread === null || book.spread <= rules.maxSpread) &&
+      (liquidity === null || liquidity >= rules.minLiquidity)
+    ) {
+      const liveDup = [
+        eq(paperTrades.status, "open"),
+        eq(paperTrades.track, "live"),
+        eq(paperTrades.marketId, obs.marketId),
+      ];
+      if (obs.outcome) liveDup.push(eq(paperTrades.outcome, obs.outcome));
+      const liveOpen = db.select({ id: paperTrades.id }).from(paperTrades).where(and(...liveDup)).get();
+      if (!liveOpen) {
+        const liveTrade = openPaperTrade(db, {
+          decisionJournalId: journalId,
+          walletAddress: obs.walletAddress,
+          marketId: obs.marketId,
+          tokenId: obs.tokenId,
+          marketQuestion: market?.question ?? obs.marketQuestion,
+          outcome: obs.outcome,
+          usdSize: rules.minPositionSize,
+          book,
+          track: "live",
+          now,
+        });
+        if (liveTrade.opened) {
+          reasons.push(`live experiment: opened $${rules.minPositionSize.toFixed(2)} in-play copy (parallel ledger)`);
+          if (telegramConfigured()) {
+            const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
+            await sendTelegramMessage(
+              `⚡ <b>EXPERIMENTO EN VIVO — copia en papel</b>\n${q}\n` +
+                `Billetera ${obs.walletAddress.slice(0, 10)}… · entrada $${rules.minPositionSize.toFixed(2)} a ` +
+                `${liveTrade.fill.avgFillPrice !== null ? (liveTrade.fill.avgFillPrice * 100).toFixed(1) : "?"}¢\n` +
+                `(libro paralelo — no toca la estrategia principal)`,
+            );
+          }
+        }
+      }
     }
 
     db.insert(decisionJournal)
@@ -224,7 +280,6 @@ runScript("score:trades", async (db) => {
       .run();
 
     const detectedPrice = obs.side === "BUY" ? (book?.bestAsk ?? null) : (book?.bestBid ?? null);
-    const inPlay = market ? isInPlayTrade(obs.timestamp.getTime(), market) : null;
     db.update(observedTrades)
       .set({ scored: true, detectedPrice, inPlay })
       .where(eq(observedTrades.id, obs.id))

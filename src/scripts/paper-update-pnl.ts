@@ -48,8 +48,9 @@ runScript("paper:update-pnl", async (db) => {
         // Real-time alert (optional): a paper trade just settled.
         if (telegramConfigured()) {
           const q = escapeHtml((trade.marketQuestion ?? trade.marketId).slice(0, 120));
+          const ledger = trade.track === "live" ? " ⚡ EXPERIMENTO EN VIVO" : "";
           await sendTelegramMessage(
-            `${won ? "✅ <b>GANADO</b>" : "❌ <b>PERDIDO</b>"} — trade en PAPEL resuelto\n${q}\n` +
+            `${won ? "✅ <b>GANADO</b>" : "❌ <b>PERDIDO</b>"} — trade en PAPEL resuelto${ledger}\n${q}\n` +
               `PnL $${realizedPnl.toFixed(2)} (tamaño $${trade.simulatedPositionSize.toFixed(2)})`,
           );
         }

@@ -60,7 +60,13 @@ runScript("review:outcomes", async (db) => {
     if (existing && existing.finalOutcome && existing.finalOutcome !== "pending") continue; // fully reviewed
 
     const obs = db.select().from(observedTrades).where(eq(observedTrades.id, d.observedTradeId)).get();
-    const paper = db.select().from(paperTrades).where(eq(paperTrades.decisionJournalId, d.id)).get();
+    // Only CORE paper trades judge a decision — live-experiment trades live in
+    // their own parallel ledger and must not color the core benchmark.
+    const paper = db
+      .select()
+      .from(paperTrades)
+      .where(and(eq(paperTrades.decisionJournalId, d.id), eq(paperTrades.track, "core")))
+      .get();
     const ageMs = Date.now() - d.createdAt.getTime();
     const t0 = d.createdAt.getTime();
 

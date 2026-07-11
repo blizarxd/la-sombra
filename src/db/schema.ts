@@ -84,6 +84,7 @@ export const observedTrades = sqliteTable(
     detectedPrice: real("detected_price"),
     size: real("size").notNull(), // USD size of the wallet's trade
     inPlay: integer("in_play", { mode: "boolean" }), // null = unknown, set at scoring
+    // (see paperTrades.track for how in-play copies are kept separate)
     timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull(),
     dedupeKey: text("dedupe_key").notNull(),
     scored: integer("scored", { mode: "boolean" }).notNull().default(false),
@@ -180,6 +181,12 @@ export const paperTrades = sqliteTable(
     status: text("status", { enum: ["open", "closed", "resolved"] })
       .notNull()
       .default("open"),
+    // Which ledger this simulated position belongs to. "core" = the main
+    // pre-game strategy; "live" = the parallel in-play experiment. The two
+    // ledgers NEVER mix: every core stat filters track='core'.
+    track: text("track", { enum: ["core", "live"] })
+      .notNull()
+      .default("core"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
@@ -187,6 +194,7 @@ export const paperTrades = sqliteTable(
   (t) => [
     index("paper_trades_status_idx").on(t.status),
     index("paper_trades_wallet_idx").on(t.walletAddress),
+    index("paper_trades_track_idx").on(t.track),
   ],
 );
 

@@ -15,6 +15,13 @@
       "when": 1783736202053,
       "tag": "0001_smooth_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1783739316811,
+      "tag": "0002_high_butterfly",
+      "breakpoints": true
     }
   ]
 }

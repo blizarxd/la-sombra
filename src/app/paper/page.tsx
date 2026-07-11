@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { desc, inArray } from "drizzle-orm";
+import { desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { decisionJournal, paperTrades } from "@/db/schema";
 import { getFillRateStats } from "@/lib/queries";
@@ -10,7 +10,14 @@ export const dynamic = "force-dynamic";
 
 export default function PaperTradesPage() {
   const db = getDb();
-  const trades = db.select().from(paperTrades).orderBy(desc(paperTrades.openedAt)).limit(200).all();
+  // Core ledger only — the ⚡ live experiment has its own page and books.
+  const trades = db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.track, "core"))
+    .orderBy(desc(paperTrades.openedAt))
+    .limit(200)
+    .all();
   const decisions = trades.length
     ? db
         .select()
@@ -31,6 +38,7 @@ export default function PaperTradesPage() {
         <h1 className="text-xl font-bold">Trades en papel</h1>
         <p className="text-sm text-mist">
           Posiciones simuladas ($5–$20 según confianza). Las entradas se llenan al ask real; las salidas se valoran al bid — se paga el spread, como en la realidad.
+          {" "}Las copias del experimento en vivo llevan su propio libro en <Link href="/live" className="text-accent hover:underline">⚡ En Vivo</Link>.
         </p>
       </header>
 

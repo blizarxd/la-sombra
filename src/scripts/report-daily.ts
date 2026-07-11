@@ -1,4 +1,4 @@
-import { desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
 import { dailyReports, decisionJournal, observedTrades, paperTrades, ruleChanges, walletProfiles } from "@/db/schema";
 import { hypotheticalPnl } from "@/lib/benchmarks";
 import { newId } from "@/lib/ids";
@@ -39,10 +39,18 @@ runScript("report:daily", async (db) => {
   const resolvedToday = db
     .select()
     .from(paperTrades)
-    .where(eq(paperTrades.status, "resolved"))
+    .where(and(eq(paperTrades.status, "resolved"), eq(paperTrades.track, "core")))
     .all()
     .filter((t) => t.resolvedAt && t.resolvedAt >= dayStart);
   const pnlToday = resolvedToday.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+
+  // ⚡ Live experiment ledger (separate books — reported on its own line).
+  const liveTrades = db.select().from(paperTrades).where(eq(paperTrades.track, "live")).all();
+  const liveResolved = liveTrades.filter((t) => t.status === "resolved");
+  const livePnl =
+    liveResolved.reduce((a, t) => a + (t.realizedPnl ?? 0), 0) +
+    liveTrades.filter((t) => t.status === "open").reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
+  const liveWins = liveResolved.filter((t) => (t.realizedPnl ?? 0) > 0).length;
 
   const walletPerf = getWalletPaperPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
   const best = walletPerf.slice(0, 3);
@@ -67,6 +75,9 @@ runScript("report:daily", async (db) => {
     `Tasa de acierto (resueltos): ${stats.winRate === null ? "n/d" : `${(stats.winRate * 100).toFixed(0)}%`} en ${stats.resolvedCount} trades`,
     `Señales hoy: ${todaysDecisions.length} (${copied} copiadas, ${watched} en vigilancia, ${skipped} descartadas)`,
     liveSignals.length ? `⚡ En vivo hoy: ${liveSignals.length} señales (${liveCopied} copiadas en papel)` : "",
+    liveTrades.length
+      ? `⚡ Experimento en vivo (libro aparte): ${liveTrades.length} copias, PnL $${livePnl.toFixed(2)}, acierto ${liveResolved.length ? `${((liveWins / liveResolved.length) * 100).toFixed(0)}% en ${liveResolved.length} resueltas` : "n/d"}`
+      : "",
     `Posiciones abiertas: ${stats.openPositions.length} | billeteras seguidas: ${stats.trackedWallets}`,
     bestTrade ? `Mejor trade hoy: ${(bestTrade.marketQuestion ?? bestTrade.marketId).slice(0, 60)} $${(bestTrade.realizedPnl ?? 0).toFixed(2)}` : "Mejor trade hoy: ninguno resuelto",
     worstTrade && worstTrade !== bestTrade ? `Peor trade hoy: ${(worstTrade.marketQuestion ?? worstTrade.marketId).slice(0, 60)} $${(worstTrade.realizedPnl ?? 0).toFixed(2)}` : "",

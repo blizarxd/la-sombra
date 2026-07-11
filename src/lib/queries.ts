@@ -17,7 +17,8 @@ import { computeBenchmarks, hypotheticalPnl, type DecisionOutcomeRow } from "./b
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
 export function getOverviewStats(db: Db) {
-  const trades = db.select().from(paperTrades).all();
+  // Core ledger only — the live experiment keeps its own books (see getLiveStats).
+  const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "core")).all();
   const open = trades.filter((t) => t.status === "open");
   const resolved = trades.filter((t) => t.status === "resolved");
   const realized = resolved.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
@@ -55,7 +56,7 @@ export function getOverviewStats(db: Db) {
 }
 
 /** Cumulative paper PnL series from pnl snapshots + resolutions (for the chart). */
-export function getPnlSeries(db: Db): { t: number; pnl: number }[] {
+export function getPnlSeries(db: Db, track: "core" | "live" = "core"): { t: number; pnl: number }[] {
   const snaps = db
     .select({
       paperTradeId: pnlSnapshots.paperTradeId,
@@ -63,6 +64,8 @@ export function getPnlSeries(db: Db): { t: number; pnl: number }[] {
       collectedAt: pnlSnapshots.collectedAt,
     })
     .from(pnlSnapshots)
+    .innerJoin(paperTrades, eq(pnlSnapshots.paperTradeId, paperTrades.id))
+    .where(eq(paperTrades.track, track))
     .orderBy(pnlSnapshots.collectedAt)
     .all();
   if (snaps.length === 0) return [];
@@ -82,7 +85,7 @@ export function getPnlSeries(db: Db): { t: number; pnl: number }[] {
 export function getDecisionOutcomes(db: Db): DecisionOutcomeRow[] {
   const decisions = db.select().from(decisionJournal).all();
   if (decisions.length === 0) return [];
-  const trades = db.select().from(paperTrades).all();
+  const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "core")).all();
   const tradeByDecision = new Map(trades.map((t) => [t.decisionJournalId, t]));
   const reviews = db.select().from(outcomeReviews).all();
   const reviewByDecision = new Map(reviews.map((r) => [r.decisionJournalId, r]));
@@ -145,6 +148,7 @@ export function getWalletPaperPerformance(db: Db) {
       count: sql<number>`count(*)`,
     })
     .from(paperTrades)
+    .where(eq(paperTrades.track, "core"))
     .groupBy(paperTrades.walletAddress)
     .all();
   return rows.map((r) => ({
@@ -165,6 +169,7 @@ export function getCategoryPerformance(db: Db) {
     .from(paperTrades)
     .innerJoin(decisionJournal, eq(paperTrades.decisionJournalId, decisionJournal.id))
     .innerJoin(observedTrades, eq(decisionJournal.observedTradeId, observedTrades.id))
+    .where(eq(paperTrades.track, "core"))
     .groupBy(observedTrades.marketCategory)
     .all();
   return rows.map((r) => ({
@@ -175,27 +180,25 @@ export function getCategoryPerformance(db: Db) {
 }
 
 /**
- * Paper performance split by in-play flag: did copying LIVE bets pay better
- * or worse than copying pre-game bets? (in_play=null → market had no known
- * game start, grouped as pre-game.)
+ * Ledger comparison: the LIVE experiment (track='live', in-play copies) vs the
+ * CORE strategy (track='core', pre-game copies). Two separate books — each
+ * one does its own thing; the numbers are never mixed elsewhere.
  */
 export function getInPlayPaperPerformance(db: Db) {
   const rows = db
     .select({
-      inPlay: observedTrades.inPlay,
+      track: paperTrades.track,
       status: paperTrades.status,
       realizedPnl: paperTrades.realizedPnl,
       unrealizedPnl: paperTrades.unrealizedPnl,
     })
     .from(paperTrades)
-    .innerJoin(decisionJournal, eq(paperTrades.decisionJournalId, decisionJournal.id))
-    .innerJoin(observedTrades, eq(decisionJournal.observedTradeId, observedTrades.id))
     .all();
 
   const empty = () => ({ count: 0, resolvedCount: 0, wins: 0, totalPnl: 0 });
   const groups = { live: empty(), preGame: empty() };
   for (const r of rows) {
-    const g = r.inPlay ? groups.live : groups.preGame;
+    const g = r.track === "live" ? groups.live : groups.preGame;
     g.count++;
     g.totalPnl += r.realizedPnl ?? r.unrealizedPnl ?? 0;
     if (r.status === "resolved") {
@@ -213,6 +216,59 @@ export function getInPlayPaperPerformance(db: Db) {
   return { live: finish(groups.live), preGame: finish(groups.preGame) };
 }
 
+/** Everything the ⚡ En Vivo page needs — live ledger only, never core. */
+export function getLiveStats(db: Db) {
+  const trades = db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.track, "live"))
+    .orderBy(desc(paperTrades.openedAt))
+    .all();
+  const open = trades.filter((t) => t.status === "open");
+  const resolved = trades.filter((t) => t.status === "resolved");
+  const realized = resolved.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+  const unrealized = open.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
+  const wins = resolved.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+
+  const dayStart = new Date();
+  dayStart.setHours(0, 0, 0, 0);
+  const liveSignalsToday = db
+    .select({ id: observedTrades.id })
+    .from(observedTrades)
+    .where(and(eq(observedTrades.inPlay, true), gte(observedTrades.timestamp, dayStart)))
+    .all().length;
+
+  const liveSignals = db
+    .select()
+    .from(observedTrades)
+    .where(eq(observedTrades.inPlay, true))
+    .orderBy(desc(observedTrades.timestamp))
+    .limit(50)
+    .all();
+
+  // Wallets with a real live-betting record (min sample), best live win rate first.
+  const liveWallets = db
+    .select()
+    .from(walletProfiles)
+    .where(gte(walletProfiles.liveResolvedCount30d, 5))
+    .orderBy(desc(walletProfiles.liveWinRate30d))
+    .limit(10)
+    .all();
+
+  return {
+    trades,
+    openCount: open.length,
+    resolvedCount: resolved.length,
+    totalPnl: Math.round((realized + unrealized) * 100) / 100,
+    realizedPnl: Math.round(realized * 100) / 100,
+    unrealizedPnl: Math.round(unrealized * 100) / 100,
+    winRate: resolved.length ? wins / resolved.length : null,
+    liveSignalsToday,
+    liveSignals,
+    liveWallets,
+  };
+}
+
 /** Fill-rate realism metric: how many paper_copy decisions actually filled. */
 export function getFillRateStats(db: Db) {
   const copies = db
@@ -220,7 +276,7 @@ export function getFillRateStats(db: Db) {
     .from(decisionJournal)
     .where(eq(decisionJournal.decision, "paper_copy"))
     .all();
-  const trades = db.select().from(paperTrades).all();
+  const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "core")).all();
   const filled = new Set(trades.map((t) => t.decisionJournalId));
   const fillCount = copies.filter((c) => filled.has(c.id)).length;
   return {
