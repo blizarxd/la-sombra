@@ -174,6 +174,45 @@ export function getCategoryPerformance(db: Db) {
   }));
 }
 
+/**
+ * Paper performance split by in-play flag: did copying LIVE bets pay better
+ * or worse than copying pre-game bets? (in_play=null → market had no known
+ * game start, grouped as pre-game.)
+ */
+export function getInPlayPaperPerformance(db: Db) {
+  const rows = db
+    .select({
+      inPlay: observedTrades.inPlay,
+      status: paperTrades.status,
+      realizedPnl: paperTrades.realizedPnl,
+      unrealizedPnl: paperTrades.unrealizedPnl,
+    })
+    .from(paperTrades)
+    .innerJoin(decisionJournal, eq(paperTrades.decisionJournalId, decisionJournal.id))
+    .innerJoin(observedTrades, eq(decisionJournal.observedTradeId, observedTrades.id))
+    .all();
+
+  const empty = () => ({ count: 0, resolvedCount: 0, wins: 0, totalPnl: 0 });
+  const groups = { live: empty(), preGame: empty() };
+  for (const r of rows) {
+    const g = r.inPlay ? groups.live : groups.preGame;
+    g.count++;
+    g.totalPnl += r.realizedPnl ?? r.unrealizedPnl ?? 0;
+    if (r.status === "resolved") {
+      g.resolvedCount++;
+      if ((r.realizedPnl ?? 0) > 0) g.wins++;
+    }
+  }
+  const finish = (g: ReturnType<typeof empty>) => ({
+    count: g.count,
+    resolvedCount: g.resolvedCount,
+    winRate: g.resolvedCount ? g.wins / g.resolvedCount : null,
+    totalPnl: Math.round(g.totalPnl * 100) / 100,
+    avgPnl: g.resolvedCount ? Math.round((g.totalPnl / g.resolvedCount) * 100) / 100 : null,
+  });
+  return { live: finish(groups.live), preGame: finish(groups.preGame) };
+}
+
 /** Fill-rate realism metric: how many paper_copy decisions actually filled. */
 export function getFillRateStats(db: Db) {
   const copies = db

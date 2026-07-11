@@ -3,6 +3,7 @@ import {
   getBenchmarkSummary,
   getCategoryPerformance,
   getFillRateStats,
+  getInPlayPaperPerformance,
   getPnlSeries,
   getWalletPaperPerformance,
 } from "@/lib/queries";
@@ -20,6 +21,7 @@ export default function PerformancePage() {
   const byWallet = getWalletPaperPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
   const byCategory = getCategoryPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
   const fill = getFillRateStats(db);
+  const inPlay = getInPlayPaperPerformance(db);
 
   const groups = [
     { name: "Filtrado por el bot (copias en papel)", g: bench.botFiltered, star: true },
@@ -83,6 +85,48 @@ export default function PerformancePage() {
         <Stat label="Buenos descartes" value={String(bench.goodSkips)} tone="profit" />
         <Stat label="Tasa de llenado" value={pct(fill.fillRate)} hint={`${fill.unfillable} intentos de copia sin llenar`} />
       </div>
+
+      <Card title="Papel: copias en vivo (⚡ in-play) vs pre-partido">
+        {inPlay.live.count === 0 && inPlay.preGame.count === 0 ? (
+          <Empty>Aún no hay trades en papel para comparar.</Empty>
+        ) : (
+          <>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Grupo</Th>
+                  <Th className="text-right">Copias</Th>
+                  <Th className="text-right">Resueltas</Th>
+                  <Th className="text-right">Tasa acierto</Th>
+                  <Th className="text-right">PnL prom./trade</Th>
+                  <Th className="text-right">PnL total</Th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <Td className="font-semibold text-orange-300">⚡ En vivo (in-play)</Td>
+                  <Td className="text-right">{inPlay.live.count}</Td>
+                  <Td className="text-right">{inPlay.live.resolvedCount}</Td>
+                  <Td className="text-right">{pct(inPlay.live.winRate)}</Td>
+                  <Td className="text-right"><PnlText value={inPlay.live.avgPnl} /></Td>
+                  <Td className="text-right font-semibold"><PnlText value={inPlay.live.totalPnl} /></Td>
+                </tr>
+                <tr>
+                  <Td className="font-semibold">Pre-partido</Td>
+                  <Td className="text-right">{inPlay.preGame.count}</Td>
+                  <Td className="text-right">{inPlay.preGame.resolvedCount}</Td>
+                  <Td className="text-right">{pct(inPlay.preGame.winRate)}</Td>
+                  <Td className="text-right"><PnlText value={inPlay.preGame.avgPnl} /></Td>
+                  <Td className="text-right font-semibold"><PnlText value={inPlay.preGame.totalPnl} /></Td>
+                </tr>
+              </tbody>
+            </Table>
+            <div className="mt-3 text-xs text-mist">
+              Ambos grupos pasan las mismas reglas (banda de entrada, guardia de entrada tardía, liquidez). Compara con suficientes resueltas antes de sacar conclusiones — el edge en vivo suele morir por llegar tarde al precio.
+            </div>
+          </>
+        )}
+      </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Rendimiento por billetera">

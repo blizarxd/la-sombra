@@ -1,5 +1,5 @@
-import { desc, eq, gte } from "drizzle-orm";
-import { dailyReports, decisionJournal, paperTrades, ruleChanges, walletProfiles } from "@/db/schema";
+import { desc, eq, gte, inArray } from "drizzle-orm";
+import { dailyReports, decisionJournal, observedTrades, paperTrades, ruleChanges, walletProfiles } from "@/db/schema";
 import { hypotheticalPnl } from "@/lib/benchmarks";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -23,6 +23,18 @@ runScript("report:daily", async (db) => {
   const copied = todaysDecisions.filter((d) => d.decision === "paper_copy").length;
   const watched = todaysDecisions.filter((d) => d.decision === "watchlist").length;
   const skipped = todaysDecisions.filter((d) => d.decision === "skip").length;
+
+  // In-play (live) split of today's signals, via the observed-trade flag.
+  const todaysObserved = todaysDecisions.length
+    ? db
+        .select({ id: observedTrades.id, inPlay: observedTrades.inPlay })
+        .from(observedTrades)
+        .where(inArray(observedTrades.id, todaysDecisions.map((d) => d.observedTradeId)))
+        .all()
+    : [];
+  const inPlayIds = new Set(todaysObserved.filter((o) => o.inPlay).map((o) => o.id));
+  const liveSignals = todaysDecisions.filter((d) => inPlayIds.has(d.observedTradeId));
+  const liveCopied = liveSignals.filter((d) => d.decision === "paper_copy").length;
 
   const resolvedToday = db
     .select()
@@ -54,6 +66,7 @@ runScript("report:daily", async (db) => {
     `PnL en papel hoy: $${pnlToday.toFixed(2)} | total: $${stats.totalPaperPnl.toFixed(2)} (realizado $${stats.realizedPnl.toFixed(2)} + abierto $${stats.unrealizedPnl.toFixed(2)})`,
     `Tasa de acierto (resueltos): ${stats.winRate === null ? "n/d" : `${(stats.winRate * 100).toFixed(0)}%`} en ${stats.resolvedCount} trades`,
     `Señales hoy: ${todaysDecisions.length} (${copied} copiadas, ${watched} en vigilancia, ${skipped} descartadas)`,
+    liveSignals.length ? `⚡ En vivo hoy: ${liveSignals.length} señales (${liveCopied} copiadas en papel)` : "",
     `Posiciones abiertas: ${stats.openPositions.length} | billeteras seguidas: ${stats.trackedWallets}`,
     bestTrade ? `Mejor trade hoy: ${(bestTrade.marketQuestion ?? bestTrade.marketId).slice(0, 60)} $${(bestTrade.realizedPnl ?? 0).toFixed(2)}` : "Mejor trade hoy: ninguno resuelto",
     worstTrade && worstTrade !== bestTrade ? `Peor trade hoy: ${(worstTrade.marketQuestion ?? worstTrade.marketId).slice(0, 60)} $${(worstTrade.realizedPnl ?? 0).toFixed(2)}` : "",
