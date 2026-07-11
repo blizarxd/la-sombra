@@ -40,7 +40,9 @@ runScript("update:rules", async (db) => {
   const settled = reviews.filter((r) => r.finalOutcome === "won" || r.finalOutcome === "lost");
   const decisions = db.select().from(decisionJournal).all();
   const decisionById = new Map(decisions.map((d) => [d.id, d]));
-  const trades = db.select().from(paperTrades).all();
+  // CORE ledger only. The ⚡ live experiment is measured, never used to tune
+  // the main rules or downgrade wallets — the two books never cross.
+  const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "core")).all();
   const tradeByDecision = new Map(trades.map((t) => [t.decisionJournalId, t]));
 
   const copySamples: Sample[] = [];
