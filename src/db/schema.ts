@@ -43,6 +43,12 @@ export const walletProfiles = sqliteTable(
     tradeCount30d: integer("trade_count_30d"),
     resolvedTradeCount30d: integer("resolved_trade_count_30d"),
     winRate30d: real("win_rate_30d"),
+    // In-play (live) sub-metrics: the wallet's edge on trades placed after the
+    // game/event start. null until profiled with game-start data.
+    liveTradeCount30d: integer("live_trade_count_30d"),
+    liveResolvedCount30d: integer("live_resolved_count_30d"),
+    liveWinRate30d: real("live_win_rate_30d"),
+    liveRoi30d: real("live_roi_30d"),
     averageLiquidity: real("average_liquidity"),
     averageSpread: real("average_spread"),
     averageEntryTiming: real("average_entry_timing"),
@@ -77,6 +83,7 @@ export const observedTrades = sqliteTable(
     walletEntryPrice: real("wallet_entry_price").notNull(),
     detectedPrice: real("detected_price"),
     size: real("size").notNull(), // USD size of the wallet's trade
+    inPlay: integer("in_play", { mode: "boolean" }), // null = unknown, set at scoring
     timestamp: integer("timestamp", { mode: "timestamp_ms" }).notNull(),
     dedupeKey: text("dedupe_key").notNull(),
     scored: integer("scored", { mode: "boolean" }).notNull().default(false),
