@@ -13,6 +13,7 @@ export interface ResolvedTradeLike {
   entryDrift: number | null; // |detectedPrice - walletEntryPrice| when we saw it
   entryPrice: number;
   sizeUsd: number;
+  inPlay?: boolean; // true if placed after the game/event start (live betting)
 }
 
 export interface WalletScoreInput {

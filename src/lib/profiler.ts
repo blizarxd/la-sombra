@@ -1,3 +1,4 @@
+import { isInPlayTrade } from "./adapters/types";
 import type { MarketInfo, WalletTrade } from "./adapters/types";
 import type { Rules } from "./rules";
 import { scoreWallet, statusForScore, type ResolvedTradeLike, type WalletScoreResult } from "./scoring/walletScoring";
@@ -16,6 +17,10 @@ export interface WalletProfileMetrics {
   averageLiquidity: number | null;
   averageSpread: number | null;
   averageEntryTiming: number | null;
+  liveTradeCount30d: number;
+  liveResolvedCount30d: number;
+  liveWinRate30d: number | null;
+  liveRoi30d: number | null;
   score: WalletScoreResult;
   status: "track" | "watch" | "ignore";
   resolvedTrades: ResolvedTradeLike[];
@@ -50,6 +55,7 @@ export function buildResolvedTrades(
       entryDrift: null, // measured live once we track the wallet
       entryPrice: t.price,
       sizeUsd: t.sizeUsd,
+      inPlay: isInPlayTrade(t.timestampMs, market),
     });
   }
   return resolved;
@@ -74,6 +80,15 @@ export function profileWallet(
 
   const score = scoreWallet({ roi30d, resolvedTrades, tradeCount30d: trades.length }, rules);
 
+  // --- in-play (live betting) sub-metrics ---
+  const liveBuys = buys.filter((t) =>
+    isInPlayTrade(t.timestampMs, t.conditionId ? markets.get(t.conditionId) : undefined),
+  );
+  const liveResolved = resolvedTrades.filter((t) => t.inPlay);
+  const liveWins = liveResolved.filter((t) => t.pnl > 0).length;
+  const liveCost = liveResolved.reduce((a, t) => a + t.sizeUsd, 0);
+  const livePnl = liveResolved.reduce((a, t) => a + t.pnl, 0);
+
   return {
     roi30d,
     tradeCount30d: trades.length,
@@ -83,6 +98,10 @@ export function profileWallet(
     averageLiquidity: avg(liqs),
     averageSpread: null,
     averageEntryTiming: null,
+    liveTradeCount30d: liveBuys.length,
+    liveResolvedCount30d: liveResolved.length,
+    liveWinRate30d: liveResolved.length ? liveWins / liveResolved.length : null,
+    liveRoi30d: liveCost > 0 ? livePnl / liveCost : null,
     score,
     status: statusForScore(score.globalScore, rules),
     resolvedTrades,
