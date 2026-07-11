@@ -1,4 +1,5 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
+import Link from "next/link";
 import { getDb } from "@/db/client";
 import { ruleChanges, ruleSets } from "@/db/schema";
 import type { Rules } from "@/lib/rules";
@@ -26,17 +27,39 @@ const thresholdLabels: [keyof Rules, string, string][] = [
 
 export default function RulesPage() {
   const db = getDb();
-  const active = db.select().from(ruleSets).where(eq(ruleSets.active, true)).get();
-  const versions = db.select().from(ruleSets).orderBy(desc(ruleSets.version)).all();
-  const changes = db.select().from(ruleChanges).orderBy(desc(ruleChanges.createdAt)).all();
+  // CORE strategy rules (the ⚡ live experiment tunes its own set on /live).
+  const active = db
+    .select()
+    .from(ruleSets)
+    .where(and(eq(ruleSets.active, true), eq(ruleSets.scope, "core")))
+    .get();
+  const versions = db
+    .select()
+    .from(ruleSets)
+    .where(eq(ruleSets.scope, "core"))
+    .orderBy(desc(ruleSets.version))
+    .all();
+  const changes = db
+    .select()
+    .from(ruleChanges)
+    .where(eq(ruleChanges.scope, "core"))
+    .orderBy(desc(ruleChanges.createdAt))
+    .all();
+  const liveActive = db
+    .select()
+    .from(ruleSets)
+    .where(and(eq(ruleSets.active, true), eq(ruleSets.scope, "live")))
+    .get();
   const rules: Rules | null = active ? JSON.parse(active.rulesJson) : null;
 
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">Reglas</h1>
+        <h1 className="text-xl font-bold">Reglas — estrategia principal (core)</h1>
         <p className="text-sm text-mist">
           El ciclo de automejora ajusta estas reglas automáticamente (solo papel, pasos acotados) — cada cambio queda versionado con motivo, evidencia, antes y después.
+          {" "}El experimento ⚡ en vivo tiene su propio set de reglas que se automejora aparte
+          {liveActive ? ` (live v${liveActive.version})` : ""}: <Link href="/live" className="text-accent hover:underline">verlo en ⚡ En Vivo</Link>.
         </p>
       </header>
 

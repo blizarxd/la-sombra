@@ -255,6 +255,20 @@ export function getLiveStats(db: Db) {
     .limit(10)
     .all();
 
+  // The live experiment's own self-improving rule set.
+  const liveRuleSet = db
+    .select()
+    .from(ruleSets)
+    .where(and(eq(ruleSets.active, true), eq(ruleSets.scope, "live")))
+    .get();
+  const liveRuleChanges = db
+    .select()
+    .from(ruleChanges)
+    .where(eq(ruleChanges.scope, "live"))
+    .orderBy(desc(ruleChanges.createdAt))
+    .limit(5)
+    .all();
+
   return {
     trades,
     openCount: open.length,
@@ -266,6 +280,8 @@ export function getLiveStats(db: Db) {
     liveSignalsToday,
     liveSignals,
     liveWallets,
+    liveRuleVersion: liveRuleSet?.version ?? null,
+    liveRuleChanges,
   };
 }
 

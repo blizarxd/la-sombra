@@ -24,7 +24,8 @@ const H = 3600 * 1000;
 const now = Date.now();
 
 runScript("seed", async (db) => {
-  getActiveRules(db); // seeds rule set v1 (defaults) if missing
+  getActiveRules(db); // seeds CORE rule set v1 (defaults) if missing
+  getActiveRules(db, "live"); // seeds LIVE experiment rule set v1 if missing
 
   // Production runs on REAL data only: rules are seeded, demo rows are not.
   // (Set SEED_DEMO=1 to force demo data for a local prod-mode preview.)

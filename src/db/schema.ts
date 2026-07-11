@@ -242,17 +242,21 @@ export const ruleSets = sqliteTable(
   "rule_sets",
   {
     id: text("id").primaryKey(),
+    // Independent rule lineages: "core" (main pre-game strategy) and "live"
+    // (the in-play experiment). Each self-improves on its OWN evidence.
+    scope: text("scope", { enum: ["core", "live"] }).notNull().default("core"),
     version: integer("version").notNull(),
     active: integer("active", { mode: "boolean" }).notNull().default(false),
     rulesJson: text("rules_json").notNull(),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (t) => [uniqueIndex("rule_sets_version_unique").on(t.version)],
+  (t) => [uniqueIndex("rule_sets_scope_version_unique").on(t.scope, t.version)],
 );
 
 export const ruleChanges = sqliteTable("rule_changes", {
   id: text("id").primaryKey(),
+  scope: text("scope", { enum: ["core", "live"] }).notNull().default("core"),
   oldRuleSetId: text("old_rule_set_id"),
   newRuleSetId: text("new_rule_set_id").notNull(),
   changedBy: text("changed_by").notNull().default("agent"),

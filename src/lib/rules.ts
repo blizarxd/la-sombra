@@ -1,7 +1,10 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { ruleSets, ruleChanges } from "@/db/schema";
 import { newId } from "./ids";
+
+/** Which strategy a rule lineage belongs to. */
+export type RuleScope = "core" | "live";
 
 /**
  * Versioned, self-tunable rule set. The agent may change these values
@@ -102,25 +105,45 @@ export function clampRuleValue(key: string, value: number): number {
   return Math.min(bounds.max, Math.max(bounds.min, value));
 }
 
-/** Get the active rule set, seeding v1 defaults if the table is empty. */
-export function getActiveRules(db: Db): { rules: Rules; version: number; id: string } {
-  const active = db.select().from(ruleSets).where(eq(ruleSets.active, true)).get();
+/**
+ * Live experiment defaults. Starts from the core defaults but with no
+ * time-to-resolution constraint (live markets are minutes from resolving) —
+ * everything else self-tunes on live evidence from here.
+ */
+export const DEFAULT_LIVE_RULES: Rules = {
+  ...DEFAULT_RULES,
+  minTimeToResolutionHours: 0,
+  maxTimeToResolutionHours: 24 * 45,
+};
+
+/** Get the active rule set for a scope, seeding v1 defaults if none exists. */
+export function getActiveRules(
+  db: Db,
+  scope: RuleScope = "core",
+): { rules: Rules; version: number; id: string } {
+  const active = db
+    .select()
+    .from(ruleSets)
+    .where(and(eq(ruleSets.active, true), eq(ruleSets.scope, scope)))
+    .get();
   if (active) {
     return { rules: JSON.parse(active.rulesJson) as Rules, version: active.version, id: active.id };
   }
   const now = new Date();
   const id = newId();
+  const defaults = scope === "live" ? DEFAULT_LIVE_RULES : DEFAULT_RULES;
   db.insert(ruleSets)
     .values({
       id,
+      scope,
       version: 1,
       active: true,
-      rulesJson: JSON.stringify(DEFAULT_RULES),
+      rulesJson: JSON.stringify(defaults),
       createdAt: now,
       updatedAt: now,
     })
     .run();
-  return { rules: DEFAULT_RULES, version: 1, id };
+  return { rules: defaults, version: 1, id };
 }
 
 export interface RuleChangeInput {
@@ -137,9 +160,9 @@ export interface RuleChangeInput {
  * version, and logs one rule_changes row describing everything.
  * Returns the new version number.
  */
-export function applyRuleChanges(db: Db, changes: RuleChangeInput[]): number {
+export function applyRuleChanges(db: Db, changes: RuleChangeInput[], scope: RuleScope = "core"): number {
   if (changes.length === 0) throw new Error("applyRuleChanges called with no changes");
-  const current = getActiveRules(db);
+  const current = getActiveRules(db, scope);
   const newRules: Rules = JSON.parse(JSON.stringify(current.rules));
   for (const c of changes) {
     setPath(newRules as unknown as Record<string, unknown>, c.key, c.after);
@@ -151,6 +174,7 @@ export function applyRuleChanges(db: Db, changes: RuleChangeInput[]): number {
   db.insert(ruleSets)
     .values({
       id: newId_,
+      scope,
       version: newVersion,
       active: true,
       rulesJson: JSON.stringify(newRules),
@@ -161,6 +185,7 @@ export function applyRuleChanges(db: Db, changes: RuleChangeInput[]): number {
   db.insert(ruleChanges)
     .values({
       id: newId(),
+      scope,
       oldRuleSetId: current.id,
       newRuleSetId: newId_,
       changedBy: "agent",

@@ -28,8 +28,21 @@ export default function LivePage() {
         <Stat label="PnL del experimento" value={money(live.totalPnl, { sign: true })} tone={pnlTone} hint={`realizado ${money(live.realizedPnl)} · abierto ${money(live.unrealizedPnl)}`} />
         <Stat label="Tasa de acierto (vivo)" value={pct(live.winRate)} hint={`${live.resolvedCount} resueltas`} />
         <Stat label="Posiciones abiertas" value={String(live.openCount)} />
-        <Stat label="Señales en vivo hoy" value={String(live.liveSignalsToday)} />
+        <Stat label="Reglas live (auto)" value={live.liveRuleVersion ? `v${live.liveRuleVersion}` : "—"} hint={`${live.liveSignalsToday} señales en vivo hoy`} />
       </div>
+
+      {live.liveRuleChanges.length > 0 ? (
+        <Card title="Automejora del experimento en vivo (cambios de reglas)">
+          <ul className="space-y-2 text-sm">
+            {live.liveRuleChanges.map((c) => (
+              <li key={c.id}>
+                <div className="text-bright">{c.reason}</div>
+                <div className="text-xs text-mist">{when(c.createdAt)} · {c.beforeJson} → {c.afterJson}</div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <Card title="PnL del experimento en vivo (libro paralelo)">
         <PnlChart points={series} />

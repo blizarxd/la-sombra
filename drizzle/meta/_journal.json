@@ -22,6 +22,13 @@
       "when": 1783739316811,
       "tag": "0002_high_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1783790208100,
+      "tag": "0003_perfect_spot",
+      "breakpoints": true
     }
   ]
 }
