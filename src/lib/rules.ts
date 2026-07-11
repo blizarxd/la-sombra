@@ -160,7 +160,12 @@ export interface RuleChangeInput {
  * version, and logs one rule_changes row describing everything.
  * Returns the new version number.
  */
-export function applyRuleChanges(db: Db, changes: RuleChangeInput[], scope: RuleScope = "core"): number {
+export function applyRuleChanges(
+  db: Db,
+  changes: RuleChangeInput[],
+  scope: RuleScope = "core",
+  changedBy: string = "agent",
+): number {
   if (changes.length === 0) throw new Error("applyRuleChanges called with no changes");
   const current = getActiveRules(db, scope);
   const newRules: Rules = JSON.parse(JSON.stringify(current.rules));
@@ -188,7 +193,7 @@ export function applyRuleChanges(db: Db, changes: RuleChangeInput[], scope: Rule
       scope,
       oldRuleSetId: current.id,
       newRuleSetId: newId_,
-      changedBy: "agent",
+      changedBy,
       reason: changes.map((c) => `${c.key}: ${c.reason}`).join(" | "),
       evidenceSummary: changes.map((c) => `${c.key}: ${c.evidence}`).join(" | "),
       beforeJson: JSON.stringify(Object.fromEntries(changes.map((c) => [c.key, c.before]))),

@@ -99,6 +99,7 @@ async function main() {
     step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
     step("update-rules.ts"); // self-improve CORE strategy on core evidence
     step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)
+    step("ai-analyst.ts"); // expert AI layer: reasoning + recommendations + bounded auto-tuning
     step("report-daily.ts");
     writeState({ ...state, lastDailyRun: today });
   } else {
