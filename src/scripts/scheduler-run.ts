@@ -58,13 +58,29 @@ function run(label: string, scriptFile: string): void {
   );
 }
 
+// Morning summary: send the daily report to Telegram once per day at a fixed
+// local hour. Uses the container's local time — set TZ in Railway (e.g.
+// TZ=America/Bogota) so "8" means 8am where you are. Fully autonomous.
+const morningHour = Number(process.env.MORNING_REPORT_HOUR ?? 8);
+let lastMorningKey = "";
+function maybeMorningReport(): void {
+  const now = new Date();
+  const dayKey = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  if (now.getHours() === morningHour && lastMorningKey !== dayKey) {
+    lastMorningKey = dayKey;
+    log.info(`[scheduler] 🌅 morning summary (${morningHour}:00 local) — sending report`);
+    run("morning report", "report-daily.ts");
+  }
+}
+
 log.info(
   `[scheduler] active — operator every ${minutes} min` +
     (liveEnabled ? `, live observation every ${liveMinutes} min` : "") +
-    " (PAPER ONLY)",
+    `, morning report at ${morningHour}:00 local (PAPER ONLY)`,
 );
 setTimeout(() => run("operator tick", "operator-tick.ts"), 15_000); // settle first
 setInterval(() => run("operator tick", "operator-tick.ts"), intervalMs);
 if (liveEnabled) {
   setInterval(() => run("live tick", "live-tick.ts"), liveMinutes * 60_000);
 }
+setInterval(maybeMorningReport, 5 * 60_000); // check every 5 min, fires once/day
