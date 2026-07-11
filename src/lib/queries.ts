@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
+  aiAnalyses,
   dailyReports,
   decisionJournal,
   marketSnapshots,
@@ -283,6 +284,11 @@ export function getLiveStats(db: Db) {
     liveRuleVersion: liveRuleSet?.version ?? null,
     liveRuleChanges,
   };
+}
+
+/** Recent AI analyst runs (expert reads + recommendations), newest first. */
+export function getAiAnalyses(db: Db, limit = 20) {
+  return db.select().from(aiAnalyses).orderBy(desc(aiAnalyses.createdAt)).limit(limit).all();
 }
 
 /** Fill-rate realism metric: how many paper_copy decisions actually filled. */
