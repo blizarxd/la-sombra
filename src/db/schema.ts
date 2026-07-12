@@ -189,9 +189,10 @@ export const paperTrades = sqliteTable(
       .notNull()
       .default("open"),
     // Which ledger this simulated position belongs to. "core" = the main
-    // pre-game strategy; "live" = the parallel in-play experiment. The two
-    // ledgers NEVER mix: every core stat filters track='core'.
-    track: text("track", { enum: ["core", "live"] })
+    // pre-game strategy; "live" = the parallel in-play experiment; "trade" =
+    // the quota-trader book (copies buy->sell round-trips of odds-scalpers).
+    // The ledgers NEVER mix: every core stat filters track='core'.
+    track: text("track", { enum: ["core", "live", "trade"] })
       .notNull()
       .default("core"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
@@ -249,9 +250,10 @@ export const ruleSets = sqliteTable(
   "rule_sets",
   {
     id: text("id").primaryKey(),
-    // Independent rule lineages: "core" (main pre-game strategy) and "live"
-    // (the in-play experiment). Each self-improves on its OWN evidence.
-    scope: text("scope", { enum: ["core", "live"] }).notNull().default("core"),
+    // Independent rule lineages: "core" (main pre-game strategy), "live"
+    // (the in-play experiment) and "trade" (the quota-trader book). Each
+    // self-improves on its OWN evidence.
+    scope: text("scope", { enum: ["core", "live", "trade"] }).notNull().default("core"),
     version: integer("version").notNull(),
     active: integer("active", { mode: "boolean" }).notNull().default(false),
     rulesJson: text("rules_json").notNull(),
@@ -263,7 +265,7 @@ export const ruleSets = sqliteTable(
 
 export const ruleChanges = sqliteTable("rule_changes", {
   id: text("id").primaryKey(),
-  scope: text("scope", { enum: ["core", "live"] }).notNull().default("core"),
+  scope: text("scope", { enum: ["core", "live", "trade"] }).notNull().default("core"),
   oldRuleSetId: text("old_rule_set_id"),
   newRuleSetId: text("new_rule_set_id").notNull(),
   changedBy: text("changed_by").notNull().default("agent"),

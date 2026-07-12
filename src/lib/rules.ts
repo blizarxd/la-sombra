@@ -4,7 +4,7 @@ import { ruleSets, ruleChanges } from "@/db/schema";
 import { newId } from "./ids";
 
 /** Which strategy a rule lineage belongs to. */
-export type RuleScope = "core" | "live";
+export type RuleScope = "core" | "live" | "trade";
 
 /**
  * Versioned, self-tunable rule set. The agent may change these values
@@ -116,6 +116,20 @@ export const DEFAULT_LIVE_RULES: Rules = {
   maxTimeToResolutionHours: 24 * 45,
 };
 
+/**
+ * Trade (quota-scalper) book defaults. Copies buy->sell round-trips of wallets
+ * that trade the odds. Coherent gates like core/live, but: no minimum time to
+ * resolution (scalps close before the market settles) and a fixed small size.
+ * Keeps the late-entry drift guard (odds move fast — entering late is costly).
+ */
+export const DEFAULT_TRADE_RULES: Rules = {
+  ...DEFAULT_RULES,
+  minTimeToResolutionHours: 0,
+  maxTimeToResolutionHours: 24 * 45,
+  minPositionSize: 5,
+  maxPositionSize: 5,
+};
+
 /** Get the active rule set for a scope, seeding v1 defaults if none exists. */
 export function getActiveRules(
   db: Db,
@@ -131,7 +145,8 @@ export function getActiveRules(
   }
   const now = new Date();
   const id = newId();
-  const defaults = scope === "live" ? DEFAULT_LIVE_RULES : DEFAULT_RULES;
+  const defaults =
+    scope === "live" ? DEFAULT_LIVE_RULES : scope === "trade" ? DEFAULT_TRADE_RULES : DEFAULT_RULES;
   db.insert(ruleSets)
     .values({
       id,

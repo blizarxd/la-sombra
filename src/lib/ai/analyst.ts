@@ -10,6 +10,7 @@ import {
   getInPlayPaperPerformance,
   getLiveStats,
   getOverviewStats,
+  getTradeStats,
   getWalletPaperPerformance,
 } from "@/lib/queries";
 import {
@@ -106,6 +107,7 @@ function gatherEvidence(db: Db) {
   const core = getOverviewStats(db);
   const bench = getBenchmarkSummary(db);
   const live = getLiveStats(db);
+  const trade = getTradeStats(db);
   const ledgers = getInPlayPaperPerformance(db);
   const walletPerf = getWalletPaperPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
   const coreRules = getActiveRules(db, "core");
@@ -169,6 +171,15 @@ function gatherEvidence(db: Db) {
       resolvedCount: live.resolvedCount,
       openCount: live.openCount,
     },
+    trade: {
+      version: getActiveRules(db, "trade").version,
+      totalPnl: trade.totalPnl,
+      winRate: trade.winRate,
+      settledCount: trade.settledCount,
+      exitClosed: trade.exitClosed,
+      openCount: trade.openCount,
+      quotaWalletCount: trade.quotaWallets.length,
+    },
     ledgerComparison: ledgers,
     walletPaperPerformance: walletPerf.slice(0, 12),
     // Trading style of the tracked wallets: do they hold to resolution or
@@ -196,6 +207,7 @@ function gatherEvidence(db: Db) {
 const SYSTEM_PROMPT = `Eres el analista experto de "La Sombra", un bot de investigación de copy trading en Polymarket que opera SOLO EN PAPEL (nunca dinero real). Conoces el proyecto a fondo:
 - Estrategia principal (core): copia pre-partido con banda de entrada, guardia de entrada tardía, filtros de spread/liquidez, y un benchmark contra "copia ciega" del leaderboard. Si la billetera copiada VENDE su posición, el bot también cierra la copia en papel (salida copiada, status "closed").
 - Perfil de estilo por billetera (trackedWalletStyles): "holdea" = sostiene hasta resolución, "tradea_cuota" = vende posiciones antes (swing sobre la cuota), "mixto" = ambas. swingPnl30d dice si ese swing les gana dinero de verdad.
+- Libro trade (quota-scalper): tercer libro separado que copia el viaje completo (compra→venta) de las billeteras que tradean la cuota con swingPnl positivo. Cierra cuando la billetera vende. Tiene su propio set de reglas y se automejora aparte.
 - Experimento en vivo (live): libro separado que copia apuestas in-play (con el juego en marcha), tamaño fijo, sin guardia de deriva — mide si copiar en vivo es rentable pese a la latencia.
 - Ambas estrategias tienen su propio set de reglas versionado que se automejora.
 

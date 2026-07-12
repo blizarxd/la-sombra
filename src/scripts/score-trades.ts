@@ -5,6 +5,7 @@ import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { closePaperTrade, openPaperTrade } from "@/lib/paper/engine";
+import { isQuotaTraderEligible } from "@/lib/profiler";
 import { getActiveRules } from "@/lib/rules";
 import { scoreTrade } from "@/lib/scoring/tradeScoring";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
@@ -34,6 +35,7 @@ runScript("score:trades", async (db) => {
   const batch = Number(argValue("--limit") ?? 30);
   const { rules, version } = getActiveRules(db);
   const { rules: liveRules } = getActiveRules(db, "live"); // ⚡ experiment's own rules
+  const { rules: tradeRules } = getActiveRules(db, "trade"); // 🔁 quota-scalper book's own rules
 
   const pending = db
     .select()
@@ -282,6 +284,64 @@ runScript("score:trades", async (db) => {
                 `Billetera ${obs.walletAddress.slice(0, 10)}… · entrada $${liveRules.minPositionSize.toFixed(2)} a ` +
                 `${liveTrade.fill.avgFillPrice !== null ? (liveTrade.fill.avgFillPrice * 100).toFixed(1) : "?"}¢\n` +
                 `(libro paralelo — no toca la estrategia principal)`,
+            );
+          }
+        }
+      }
+    }
+
+    // --- 🔁 TRADE BOOK (parallel ledger, track="trade") ---
+    // The quota-scalper experiment: copies buy->sell ROUND-TRIPS of wallets
+    // whose profile shows they trade the odds (sell early) PROFITABLY. Opens
+    // here on their BUY (pre-game or in-play) with coherent gates like the
+    // other books; the exit is closed by the SELL block above when they sell.
+    // Its own book/rules — never touches core or live stats.
+    const isQuotaTrader = wallet
+      ? isQuotaTraderEligible({ tradingStyle: wallet.tradingStyle, swingPnl30d: wallet.swingPnl30d })
+      : false;
+    const tradeDrift =
+      book?.bestAsk != null ? Math.abs(book.bestAsk - obs.walletEntryPrice) : null;
+    if (
+      isQuotaTrader &&
+      obs.side === "BUY" &&
+      book &&
+      (wallet?.globalScore ?? 0) >= tradeRules.minWalletGlobalScore &&
+      book.bestAsk !== null &&
+      book.bestAsk >= tradeRules.minEntryPrice &&
+      book.bestAsk <= tradeRules.maxEntryPrice &&
+      (tradeDrift === null || tradeDrift <= tradeRules.maxPriceDrift) &&
+      (book.spread === null || book.spread <= tradeRules.maxSpread) &&
+      (liquidity === null || liquidity >= tradeRules.minLiquidity)
+    ) {
+      const tradeDup = [
+        eq(paperTrades.status, "open"),
+        eq(paperTrades.track, "trade"),
+        eq(paperTrades.marketId, obs.marketId),
+      ];
+      if (obs.outcome) tradeDup.push(eq(paperTrades.outcome, obs.outcome));
+      const tradeOpen = db.select({ id: paperTrades.id }).from(paperTrades).where(and(...tradeDup)).get();
+      if (!tradeOpen) {
+        const tradeTrade = openPaperTrade(db, {
+          decisionJournalId: journalId,
+          walletAddress: obs.walletAddress,
+          marketId: obs.marketId,
+          tokenId: obs.tokenId,
+          marketQuestion: market?.question ?? obs.marketQuestion,
+          outcome: obs.outcome,
+          usdSize: tradeRules.minPositionSize,
+          book,
+          track: "trade",
+          now,
+        });
+        if (tradeTrade.opened) {
+          reasons.push(`trade book: opened $${tradeRules.minPositionSize.toFixed(2)} scalp copy of a quota-trader (parallel ledger)`);
+          if (telegramConfigured()) {
+            const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
+            await sendTelegramMessage(
+              `🔁 <b>LIBRO TRADE — copia de cuota (papel)</b>\n${q}\n` +
+                `Billetera ${obs.walletAddress.slice(0, 10)}… (tradea cuota) · entrada $${tradeRules.minPositionSize.toFixed(2)} a ` +
+                `${tradeTrade.fill.avgFillPrice !== null ? (tradeTrade.fill.avgFillPrice * 100).toFixed(1) : "?"}¢\n` +
+                `(cerramos cuando la billetera venda — libro aparte)`,
             );
           }
         }

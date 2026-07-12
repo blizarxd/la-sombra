@@ -88,8 +88,8 @@ export interface OpenPaperTradeInput {
   outcome: string | null;
   usdSize: number;
   book: OrderBook;
-  /** Ledger: "core" (default, main strategy) or "live" (in-play experiment). */
-  track?: "core" | "live";
+  /** Ledger: "core" (main strategy), "live" (in-play experiment) or "trade" (quota-scalper book). */
+  track?: "core" | "live" | "trade";
   now?: Date;
 }
 

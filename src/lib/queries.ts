@@ -58,7 +58,7 @@ export function getOverviewStats(db: Db) {
 }
 
 /** Cumulative paper PnL series from pnl snapshots + resolutions (for the chart). */
-export function getPnlSeries(db: Db, track: "core" | "live" = "core"): { t: number; pnl: number }[] {
+export function getPnlSeries(db: Db, track: "core" | "live" | "trade" = "core"): { t: number; pnl: number }[] {
   const snaps = db
     .select({
       paperTradeId: pnlSnapshots.paperTradeId,
@@ -88,7 +88,7 @@ export function getPnlSeries(db: Db, track: "core" | "live" = "core"): { t: numb
  * resolves or is exit-closed — the honest scorecard, free of the open-position
  * mark-to-market noise that dominates getPnlSeries.
  */
-export function getRealizedPnlSeries(db: Db, track: "core" | "live" = "core"): { t: number; pnl: number }[] {
+export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" = "core"): { t: number; pnl: number }[] {
   const settled = db
     .select({
       realizedPnl: paperTrades.realizedPnl,
@@ -227,6 +227,7 @@ export function getInPlayPaperPerformance(db: Db) {
   const empty = () => ({ count: 0, resolvedCount: 0, wins: 0, totalPnl: 0 });
   const groups = { live: empty(), preGame: empty() };
   for (const r of rows) {
+    if (r.track !== "live" && r.track !== "core") continue; // 'trade' book has its own page
     const g = r.track === "live" ? groups.live : groups.preGame;
     g.count++;
     g.totalPnl += r.realizedPnl ?? r.unrealizedPnl ?? 0;
@@ -311,6 +312,65 @@ export function getLiveStats(db: Db) {
     liveWallets,
     liveRuleVersion: liveRuleSet?.version ?? null,
     liveRuleChanges,
+  };
+}
+
+/** Everything the 🔁 Trade page needs — trade ledger only, never core/live. */
+export function getTradeStats(db: Db) {
+  const trades = db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.track, "trade"))
+    .orderBy(desc(paperTrades.openedAt))
+    .all();
+  const open = trades.filter((t) => t.status === "open");
+  const settled = trades.filter((t) => t.status !== "open"); // resolved or exit-closed
+  const realized = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+  const unrealized = open.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
+  const wins = settled.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  // How many settled scalps closed early (exit copied) vs rode to resolution.
+  const exitClosed = settled.filter((t) => t.status === "closed").length;
+
+  // Quota-trader wallets that feed this book: profiled as odds-traders with
+  // positive swing PnL, best swing win rate first.
+  const quotaWallets = db
+    .select()
+    .from(walletProfiles)
+    .where(
+      and(
+        inArray(walletProfiles.tradingStyle, ["tradea_cuota", "mixto"]),
+        gte(walletProfiles.swingPnl30d, 0.01),
+      ),
+    )
+    .orderBy(desc(walletProfiles.swingWinRate30d))
+    .limit(15)
+    .all();
+
+  const tradeRuleSet = db
+    .select()
+    .from(ruleSets)
+    .where(and(eq(ruleSets.active, true), eq(ruleSets.scope, "trade")))
+    .get();
+  const tradeRuleChanges = db
+    .select()
+    .from(ruleChanges)
+    .where(eq(ruleChanges.scope, "trade"))
+    .orderBy(desc(ruleChanges.createdAt))
+    .limit(5)
+    .all();
+
+  return {
+    trades,
+    openCount: open.length,
+    settledCount: settled.length,
+    exitClosed,
+    totalPnl: Math.round((realized + unrealized) * 100) / 100,
+    realizedPnl: Math.round(realized * 100) / 100,
+    unrealizedPnl: Math.round(unrealized * 100) / 100,
+    winRate: settled.length ? wins / settled.length : null,
+    quotaWallets,
+    tradeRuleVersion: tradeRuleSet?.version ?? null,
+    tradeRuleChanges,
   };
 }
 

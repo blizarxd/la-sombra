@@ -104,6 +104,19 @@ export function buildSwingStats(trades: WalletTrade[]): SwingStats {
   };
 }
 
+/**
+ * Eligibility for the 🔁 Trade book: the wallet trades the odds (sells early)
+ * AND that swing behavior is profitable. Pure so the copy gate is testable.
+ */
+export function isQuotaTraderEligible(w: {
+  tradingStyle: string | null;
+  swingPnl30d: number | null;
+}): boolean {
+  return (
+    (w.tradingStyle === "tradea_cuota" || w.tradingStyle === "mixto") && (w.swingPnl30d ?? 0) > 0
+  );
+}
+
 export function buildResolvedTrades(
   trades: WalletTrade[],
   markets: Map<string, MarketInfo>,

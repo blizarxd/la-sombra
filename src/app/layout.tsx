@@ -13,6 +13,7 @@ const nav = [
   { href: "/signals", label: "Señales" },
   { href: "/paper", label: "Trades en papel" },
   { href: "/live", label: "⚡ En Vivo" },
+  { href: "/trade", label: "🔁 Trade" },
   { href: "/journal", label: "Diario de decisiones" },
   { href: "/performance", label: "Rendimiento" },
   { href: "/rules", label: "Reglas" },
