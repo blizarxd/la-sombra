@@ -57,6 +57,13 @@
       "when": 1783893402764,
       "tag": "0007_exotic_deathbird",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1783894407724,
+      "tag": "0008_sour_switch",
+      "breakpoints": true
     }
   ]
 }

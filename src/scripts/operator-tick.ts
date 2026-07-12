@@ -96,6 +96,7 @@ async function main() {
       `[operator:tick] running DAILY cycle (${firstOfDay ? "first tick of the day" : "bootstrap: empty wallet queue"})`,
     );
     step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
+    step("scan-crypto-markets.ts"); // mine quota-scalper + crypto wallets the PnL board hides
     step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
     step("update-rules.ts"); // self-improve CORE strategy on core evidence
     step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)

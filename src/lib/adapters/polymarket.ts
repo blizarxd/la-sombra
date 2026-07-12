@@ -148,9 +148,68 @@ export async function fetchWalletTrades(
   return trades;
 }
 
+/**
+ * Recent trades on a specific market (data-api /trades?market=conditionId).
+ * Verified live 2026-07-12: returns the market's trade feed with proxyWallet +
+ * side, so we can discover WHO is actively trading a market (used to source
+ * quota-scalper and crypto-active wallets that never show on the PnL board).
+ */
+export async function fetchMarketTrades(
+  conditionId: string,
+  opts?: { limit?: number },
+): Promise<WalletTrade[]> {
+  const limit = Math.min(opts?.limit ?? 100, 500);
+  const url = `${DATA_API()}/trades?market=${encodeURIComponent(conditionId)}&limit=${limit}`;
+  const data = await httpGet("polymarket-data-api", url);
+  if (!Array.isArray(data)) {
+    throw new AdapterError("polymarket-data-api", url, 200, "unexpected trades shape (not an array)");
+  }
+  const trades: WalletTrade[] = [];
+  for (const row of data as any[]) {
+    const address = String(row.proxyWallet ?? "").toLowerCase();
+    if (!isRealAddress(address)) continue;
+    const price = num(row.price) ?? 0;
+    const shares = num(row.size) ?? 0;
+    trades.push({
+      walletAddress: address,
+      marketId: String(row.conditionId ?? row.market ?? row.slug ?? ""),
+      conditionId: row.conditionId ? String(row.conditionId) : null,
+      tokenId: row.asset ? String(row.asset) : null,
+      marketQuestion: (row.title ?? row.question ?? null) as string | null,
+      marketCategory: (row.category ?? null) as string | null,
+      outcome: (row.outcome ?? null) as string | null,
+      side: String(row.side ?? "BUY").toUpperCase() === "SELL" ? "SELL" : "BUY",
+      price,
+      sizeUsd: price * shares,
+      timestampMs: (num(row.timestamp) ?? 0) * 1000,
+      transactionHash: (row.transactionHash ?? null) as string | null,
+      raw: row,
+    });
+  }
+  return trades;
+}
+
 // ---------------------------------------------------------------------------
 // Markets (Gamma)
 // ---------------------------------------------------------------------------
+
+/**
+ * Active markets carrying a Gamma tag (verified live 2026-07-12: tag_id=21 is
+ * "Crypto"). Ordered by volume desc by default so we mine the busy markets.
+ */
+export async function fetchMarketsByTag(
+  tagId: number,
+  opts?: { limit?: number; order?: string },
+): Promise<MarketInfo[]> {
+  const limit = Math.min(opts?.limit ?? 20, 100);
+  const order = opts?.order ?? "volumeNum";
+  const url = `${GAMMA_API()}/markets?active=true&closed=false&tag_id=${tagId}&limit=${limit}&order=${order}&ascending=false`;
+  const data = await httpGet("polymarket-gamma-api", url);
+  if (!Array.isArray(data)) {
+    throw new AdapterError("polymarket-gamma-api", url, 200, "unexpected markets shape (not an array)");
+  }
+  return (data as any[]).map(toMarketInfo);
+}
 
 function toMarketInfo(row: any): MarketInfo {
   const outcomes = parseJsonArray(row.outcomes).map(String);

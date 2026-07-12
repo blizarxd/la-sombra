@@ -56,6 +56,9 @@ export const walletProfiles = sqliteTable(
     swingPnl30d: real("swing_pnl_30d"),
     swingWinRate30d: real("swing_win_rate_30d"),
     tradingStyle: text("trading_style"), // "holdea" | "mixto" | "tradea_cuota"
+    // Where the wallet was discovered: comma-separated tags, e.g. "pnl-board",
+    // "crypto-market". Lets us mine scalper/crypto wallets the PnL board hides.
+    sources: text("sources"),
     averageLiquidity: real("average_liquidity"),
     averageSpread: real("average_spread"),
     averageEntryTiming: real("average_entry_timing"),

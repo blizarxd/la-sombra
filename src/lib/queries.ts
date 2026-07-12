@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, like, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
   aiAnalyses,
@@ -371,6 +371,44 @@ export function getTradeStats(db: Db) {
     quotaWallets,
     tradeRuleVersion: tradeRuleSet?.version ?? null,
     tradeRuleChanges,
+  };
+}
+
+/**
+ * Crypto observation desk: wallets discovered by mining the busiest crypto
+ * markets (sourced "crypto-market"), plus their swing profile. This is the
+ * research surface for "who trades crypto well" — an observation feed, not a
+ * separate paper ledger; qualifying wallets flow into the existing books.
+ */
+export function getCryptoDesk(db: Db) {
+  const wallets = db
+    .select()
+    .from(walletProfiles)
+    .where(like(walletProfiles.sources, "%crypto-market%"))
+    .all();
+
+  const profiled = wallets.filter((w) => w.lastScannedAt !== null);
+  const pending = wallets.length - profiled.length;
+  const tracked = profiled.filter((w) => w.status === "track");
+  const quota = profiled.filter(
+    (w) =>
+      (w.tradingStyle === "tradea_cuota" || w.tradingStyle === "mixto") && (w.swingPnl30d ?? 0) > 0,
+  );
+
+  // Best crypto wallets first: quota-eligible on top, then by swing PnL / score.
+  const ranked = [...profiled].sort((a, b) => {
+    const sa = (b.swingPnl30d ?? 0) - (a.swingPnl30d ?? 0);
+    if (sa !== 0) return sa;
+    return (b.globalScore ?? 0) - (a.globalScore ?? 0);
+  });
+
+  return {
+    total: wallets.length,
+    profiledCount: profiled.length,
+    pendingCount: pending,
+    trackedCount: tracked.length,
+    quotaCount: quota.length,
+    wallets: ranked.slice(0, 40),
   };
 }
 

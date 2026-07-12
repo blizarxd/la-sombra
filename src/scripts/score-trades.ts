@@ -300,15 +300,21 @@ runScript("score:trades", async (db) => {
     // other books; the exit is closed by the SELL block above when they sell.
     // Its own book/rules — never touches core or live stats.
     const isQuotaTrader = wallet
-      ? isQuotaTraderEligible({ tradingStyle: wallet.tradingStyle, swingPnl30d: wallet.swingPnl30d })
+      ? isQuotaTraderEligible({
+          tradingStyle: wallet.tradingStyle,
+          swingPnl30d: wallet.swingPnl30d,
+          swingWinRate30d: wallet.swingWinRate30d,
+          sellCount30d: wallet.sellCount30d,
+        })
       : false;
     const tradeDrift =
       book?.bestAsk != null ? Math.abs(book.bestAsk - obs.walletEntryPrice) : null;
+    // No holder-score gate here: the trade book is judged on the wallet's SWING
+    // record (encoded in isQuotaTrader), not its hold-to-resolution score.
     if (
       isQuotaTrader &&
       obs.side === "BUY" &&
       book &&
-      (wallet?.globalScore ?? 0) >= tradeRules.minWalletGlobalScore &&
       book.bestAsk !== null &&
       book.bestAsk >= tradeRules.minEntryPrice &&
       book.bestAsk <= tradeRules.maxEntryPrice &&

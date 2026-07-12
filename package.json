@@ -14,6 +14,7 @@
     "purge:demo": "tsx src/scripts/purge-demo.ts",
     "scan:leaderboard": "tsx src/scripts/scan-leaderboard.ts",
     "scan:wallets": "tsx src/scripts/scan-wallets.ts",
+    "scan:crypto-markets": "tsx src/scripts/scan-crypto-markets.ts",
     "monitor:trades": "tsx src/scripts/monitor-trades.ts",
     "score:trades": "tsx src/scripts/score-trades.ts",
     "paper:update-pnl": "tsx src/scripts/paper-update-pnl.ts",

@@ -3,7 +3,7 @@ import { walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchWalletTrades, isRealAddress } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
 import { log } from "@/lib/logger";
-import { profileWallet } from "@/lib/profiler";
+import { isQuotaTraderEligible, profileWallet } from "@/lib/profiler";
 import { getActiveRules } from "@/lib/rules";
 import { argValue, runScript } from "./_runner";
 
@@ -58,15 +58,30 @@ runScript("scan:wallets", async (db) => {
         for (const m of markets) if (m.conditionId) marketCache.set(m.conditionId, m);
       }
       const metrics = profileWallet(trades, marketCache, rules);
-      // A wallet benched for bleeding paper copies is never re-promoted by score.
-      const status = wallet.benched ? "ignore" : metrics.status;
+      // A proven quota-trader earns tracking even if its HOLDER score is low —
+      // otherwise scalpers (who rarely hold to resolution) would never be
+      // monitored and the 🔁 Trade book could never copy them.
+      const quotaEligible = isQuotaTraderEligible({
+        tradingStyle: metrics.swing.style,
+        swingPnl30d: metrics.swing.swingPnl,
+        swingWinRate30d: metrics.swing.swingWinRate,
+        sellCount30d: metrics.swing.sellCount,
+      });
+      // A wallet benched for bleeding paper copies is never re-promoted.
+      const status = wallet.benched
+        ? "ignore"
+        : metrics.status === "track" || quotaEligible
+          ? "track"
+          : metrics.status;
       const reason = wallet.benched
         ? `benched: auto-downgraded for losing paper copies (score ${Math.round(metrics.score.globalScore)} ignored)`
-        : status === "track"
-          ? `global score ${Math.round(metrics.score.globalScore)} >= ${rules.minWalletGlobalScore}`
-          : status === "watch"
-            ? `global score ${Math.round(metrics.score.globalScore)} in watch band`
-            : `global score ${Math.round(metrics.score.globalScore)} too low`;
+        : metrics.status !== "track" && quotaEligible
+          ? `quota-trader: swing pnl $${metrics.swing.swingPnl.toFixed(2)}, ${metrics.swing.sellCount} exits (holder score ${Math.round(metrics.score.globalScore)})`
+          : status === "track"
+            ? `global score ${Math.round(metrics.score.globalScore)} >= ${rules.minWalletGlobalScore}`
+            : status === "watch"
+              ? `global score ${Math.round(metrics.score.globalScore)} in watch band`
+              : `global score ${Math.round(metrics.score.globalScore)} too low`;
       db.update(walletProfiles)
         .set({
           status,

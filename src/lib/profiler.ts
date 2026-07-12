@@ -105,16 +105,27 @@ export function buildSwingStats(trades: WalletTrade[]): SwingStats {
 }
 
 /**
- * Eligibility for the 🔁 Trade book: the wallet trades the odds (sells early)
- * AND that swing behavior is profitable. Pure so the copy gate is testable.
+ * Eligibility for the 🔁 Trade book. Judged on the wallet's SWING record, NOT
+ * its hold-to-resolution leaderboard score (that score is a holder metric and
+ * was filtering every scalper out before this gate mattered). A wallet earns
+ * the trade book when it trades the odds (sells early) with a real, profitable
+ * track record: enough matched exits, a winning swing win-rate, positive swing
+ * PnL. Pure so the copy gate is testable.
  */
+export const MIN_SWING_EXITS = 3;
+export const MIN_SWING_WIN_RATE = 0.5;
+
 export function isQuotaTraderEligible(w: {
   tradingStyle: string | null;
   swingPnl30d: number | null;
+  swingWinRate30d: number | null;
+  sellCount30d: number | null;
 }): boolean {
-  return (
-    (w.tradingStyle === "tradea_cuota" || w.tradingStyle === "mixto") && (w.swingPnl30d ?? 0) > 0
-  );
+  const tradesOdds = w.tradingStyle === "tradea_cuota" || w.tradingStyle === "mixto";
+  const enoughExits = (w.sellCount30d ?? 0) >= MIN_SWING_EXITS;
+  const winsSwings = (w.swingWinRate30d ?? 0) >= MIN_SWING_WIN_RATE;
+  const profitable = (w.swingPnl30d ?? 0) > 0;
+  return tradesOdds && enoughExits && winsSwings && profitable;
 }
 
 export function buildResolvedTrades(

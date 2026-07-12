@@ -1,0 +1,1 @@
+ALTER TABLE `wallet_profiles` ADD `sources` text;
