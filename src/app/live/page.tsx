@@ -1,14 +1,17 @@
 import Link from "next/link";
 import { getDb } from "@/db/client";
+import { getControlSettings } from "@/lib/control";
 import { getLiveStats, getPnlSeries, getRealizedPnlSeries, getWalletPaperPerformance } from "@/lib/queries";
 import { money, pct, price, score, shortAddr, when } from "@/lib/format";
 import { Badge, Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
+import { updateLiveControls } from "./actions";
 
 export const dynamic = "force-dynamic";
 
 export default function LivePage() {
   const db = getDb();
+  const control = getControlSettings(db);
   const live = getLiveStats(db);
   const series = getPnlSeries(db, "live");
   const realizedSeries = getRealizedPnlSeries(db, "live");
@@ -32,6 +35,47 @@ export default function LivePage() {
         <Stat label="Posiciones abiertas" value={String(live.openCount)} />
         <Stat label="Reglas live (auto)" value={live.liveRuleVersion ? `v${live.liveRuleVersion}` : "—"} hint={`${live.liveSignalsToday} señales en vivo hoy`} />
       </div>
+
+      <Card title="Control del experimento en vivo (papel)">
+        <form action={updateLiveControls} className="flex flex-wrap items-end gap-4">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              name="liveEnabled"
+              defaultChecked={control.liveEnabled}
+              className="h-4 w-4 accent-emerald-500"
+            />
+            <span>
+              Copiar en vivo{" "}
+              <span className={control.liveEnabled ? "text-profit" : "text-mist"}>
+                ({control.liveEnabled ? "ENCENDIDO" : "APAGADO"})
+              </span>
+            </span>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="text-xs text-mist">Stake por copia (USD, papel)</span>
+            <input
+              type="number"
+              name="liveStakeUsd"
+              defaultValue={control.liveStakeUsd}
+              min={1}
+              max={100}
+              step={0.5}
+              className="w-28 rounded border border-slate-700 bg-slate-900 px-2 py-1 text-sm"
+            />
+          </label>
+          <button
+            type="submit"
+            className="rounded bg-emerald-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-600"
+          >
+            Guardar
+          </button>
+        </form>
+        <p className="mt-2 text-xs text-mist">
+          Apagado: el libro en vivo deja de abrir copias nuevas (las abiertas siguen su curso). El premarket es
+          automático y no se ve afectado. Solo papel — nunca envía órdenes reales.
+        </p>
+      </Card>
 
       {live.liveRuleChanges.length > 0 ? (
         <Card title="Automejora del experimento en vivo (cambios de reglas)">

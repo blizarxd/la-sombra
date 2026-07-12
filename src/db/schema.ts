@@ -328,3 +328,15 @@ export const dailyReports = sqliteTable(
   },
   (t) => [uniqueIndex("daily_reports_date_unique").on(t.date)],
 );
+
+// ---------------------------------------------------------------------------
+// Control settings (single row) — manual switches over the paper experiments.
+// SAFETY: paper trading only. These flags gate whether SIMULATED copies open;
+// no flag here can ever place a real order.
+// ---------------------------------------------------------------------------
+export const controlSettings = sqliteTable("control_settings", {
+  id: text("id").primaryKey(), // always "singleton"
+  liveEnabled: integer("live_enabled", { mode: "boolean" }).notNull().default(true),
+  liveStakeUsd: real("live_stake_usd").notNull().default(5),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});

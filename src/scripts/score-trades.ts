@@ -4,6 +4,7 @@ import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
+import { getControlSettings } from "@/lib/control";
 import { closePaperTrade, openPaperTrade } from "@/lib/paper/engine";
 import { isQuotaTraderEligible } from "@/lib/profiler";
 import { getActiveRules } from "@/lib/rules";
@@ -36,6 +37,7 @@ runScript("score:trades", async (db) => {
   const { rules, version } = getActiveRules(db);
   const { rules: liveRules } = getActiveRules(db, "live"); // ⚡ experiment's own rules
   const { rules: tradeRules } = getActiveRules(db, "trade"); // 🔁 quota-scalper book's own rules
+  const control = getControlSettings(db); // manual ⚡ live on/off + stake (paper only)
 
   const pending = db
     .select()
@@ -245,6 +247,7 @@ runScript("score:trades", async (db) => {
     // prices move by nature — that is exactly what this ledger measures).
     // It never touches core stats: everything core filters track='core'.
     if (
+      control.liveEnabled &&
       inPlay === true &&
       obs.side === "BUY" &&
       book &&
@@ -270,18 +273,18 @@ runScript("score:trades", async (db) => {
           tokenId: obs.tokenId,
           marketQuestion: market?.question ?? obs.marketQuestion,
           outcome: obs.outcome,
-          usdSize: liveRules.minPositionSize,
+          usdSize: control.liveStakeUsd,
           book,
           track: "live",
           now,
         });
         if (liveTrade.opened) {
-          reasons.push(`live experiment: opened $${liveRules.minPositionSize.toFixed(2)} in-play copy (parallel ledger)`);
+          reasons.push(`live experiment: opened $${control.liveStakeUsd.toFixed(2)} in-play copy (parallel ledger)`);
           if (telegramConfigured()) {
             const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
             await sendTelegramMessage(
               `⚡ <b>EXPERIMENTO EN VIVO — copia en papel</b>\n${q}\n` +
-                `Billetera ${obs.walletAddress.slice(0, 10)}… · entrada $${liveRules.minPositionSize.toFixed(2)} a ` +
+                `Billetera ${obs.walletAddress.slice(0, 10)}… · entrada $${control.liveStakeUsd.toFixed(2)} a ` +
                 `${liveTrade.fill.avgFillPrice !== null ? (liveTrade.fill.avgFillPrice * 100).toFixed(1) : "?"}¢\n` +
                 `(libro paralelo — no toca la estrategia principal)`,
             );
