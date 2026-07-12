@@ -22,3 +22,36 @@ body {
 ::selection {
   background: #7dd3fc33;
 }
+
+/* PnL chart animations */
+@keyframes pnl-draw {
+  from {
+    stroke-dashoffset: var(--pnl-len, 1200);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes pnl-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.pnl-line {
+  stroke-dasharray: var(--pnl-len, 1200);
+  animation: pnl-draw 1100ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.pnl-area {
+  animation: pnl-fade 1300ms ease forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pnl-line,
+  .pnl-area {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
