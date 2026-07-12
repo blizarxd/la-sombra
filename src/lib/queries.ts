@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
   aiAnalyses,
@@ -81,6 +81,32 @@ export function getPnlSeries(db: Db, track: "core" | "live" = "core"): { t: numb
     series.push({ t: s.collectedAt.getTime(), pnl: Math.round(total * 100) / 100 });
   }
   return series;
+}
+
+/**
+ * Cumulative REALIZED (settled) PnL series: steps only when a trade actually
+ * resolves or is exit-closed — the honest scorecard, free of the open-position
+ * mark-to-market noise that dominates getPnlSeries.
+ */
+export function getRealizedPnlSeries(db: Db, track: "core" | "live" = "core"): { t: number; pnl: number }[] {
+  const settled = db
+    .select({
+      realizedPnl: paperTrades.realizedPnl,
+      resolvedAt: paperTrades.resolvedAt,
+      closedAt: paperTrades.closedAt,
+    })
+    .from(paperTrades)
+    .where(and(eq(paperTrades.track, track), ne(paperTrades.status, "open")))
+    .all();
+  const events = settled
+    .map((t) => ({ t: (t.resolvedAt ?? t.closedAt)?.getTime() ?? null, pnl: t.realizedPnl ?? 0 }))
+    .filter((e): e is { t: number; pnl: number } => e.t !== null)
+    .sort((a, b) => a.t - b.t);
+  let cum = 0;
+  return events.map((e) => {
+    cum += e.pnl;
+    return { t: e.t, pnl: Math.round(cum * 100) / 100 };
+  });
 }
 
 /** Build decision-outcome rows for benchmark comparisons. */

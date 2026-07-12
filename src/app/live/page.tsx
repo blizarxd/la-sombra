@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@/db/client";
-import { getLiveStats, getPnlSeries } from "@/lib/queries";
+import { getLiveStats, getPnlSeries, getRealizedPnlSeries } from "@/lib/queries";
 import { money, pct, price, score, shortAddr, when } from "@/lib/format";
 import { Badge, Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
@@ -11,6 +11,7 @@ export default function LivePage() {
   const db = getDb();
   const live = getLiveStats(db);
   const series = getPnlSeries(db, "live");
+  const realizedSeries = getRealizedPnlSeries(db, "live");
   const pnlTone = live.totalPnl > 0 ? "profit" : live.totalPnl < 0 ? "loss" : "neutral";
 
   return (
@@ -45,7 +46,7 @@ export default function LivePage() {
       ) : null}
 
       <Card title="PnL del experimento en vivo (libro paralelo)">
-        <PnlChart points={series} />
+        <PnlChart marked={series} realized={realizedSeries} />
       </Card>
 
       <Card title={`Copias en vivo (${live.trades.length})`}>

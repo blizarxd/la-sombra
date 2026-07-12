@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getDb } from "@/db/client";
 import { walletProfiles } from "@/db/schema";
 import { desc } from "drizzle-orm";
-import { getOverviewStats, getPnlSeries, getBenchmarkSummary } from "@/lib/queries";
+import { getOverviewStats, getPnlSeries, getRealizedPnlSeries, getBenchmarkSummary } from "@/lib/queries";
 import { money, pct, shortAddr, when, isDemo, score } from "@/lib/format";
 import { Card, Stat, Badge, DemoTag, Empty, PnlText } from "./components/ui";
 import { PnlChart } from "./components/PnlChart";
@@ -13,6 +13,7 @@ export default function OverviewPage() {
   const db = getDb();
   const stats = getOverviewStats(db);
   const series = getPnlSeries(db);
+  const realizedSeries = getRealizedPnlSeries(db);
   const bench = getBenchmarkSummary(db);
   const topWallets = db
     .select()
@@ -40,7 +41,12 @@ export default function OverviewPage() {
       </div>
 
       <Card title="PnL en papel a lo largo del tiempo">
-        <PnlChart points={series} />
+        <PnlChart marked={series} realized={realizedSeries} />
+        <p className="mt-2 text-xs text-mist">
+          La línea <span className="text-profit">verde</span> es el PnL <b>liquidado</b> (solo trades cerrados/resueltos): el
+          marcador honesto. La <span style={{ color: "#94a3b8" }}>gris</span> es el <b>valor de mercado</b> incluyendo
+          posiciones abiertas marcadas al bid — se mueve en cada tick y por eso salta.
+        </p>
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">

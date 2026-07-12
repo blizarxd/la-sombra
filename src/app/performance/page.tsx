@@ -5,6 +5,7 @@ import {
   getFillRateStats,
   getInPlayPaperPerformance,
   getPnlSeries,
+  getRealizedPnlSeries,
   getWalletPaperPerformance,
 } from "@/lib/queries";
 import { money, pct, shortAddr } from "@/lib/format";
@@ -17,6 +18,7 @@ export const dynamic = "force-dynamic";
 export default function PerformancePage() {
   const db = getDb();
   const series = getPnlSeries(db);
+  const realizedSeries = getRealizedPnlSeries(db);
   const bench = getBenchmarkSummary(db);
   const byWallet = getWalletPaperPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
   const byCategory = getCategoryPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
@@ -37,8 +39,8 @@ export default function PerformancePage() {
         <p className="text-sm text-mist">PnL en papel, tasas de acierto y el benchmark que importa: ¿filtrar le gana a copiar a ciegas?</p>
       </header>
 
-      <Card title="PnL en papel acumulado (marcas por hora)">
-        <PnlChart points={series} />
+      <Card title="PnL en papel: liquidado vs valor de mercado">
+        <PnlChart marked={series} realized={realizedSeries} />
       </Card>
 
       <Card title="Filtrado por el bot vs copia ciega del leaderboard">
