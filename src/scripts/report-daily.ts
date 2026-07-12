@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, ne } from "drizzle-orm";
 import { dailyReports, decisionJournal, observedTrades, paperTrades, ruleChanges, walletProfiles } from "@/db/schema";
 import { hypotheticalPnl } from "@/lib/benchmarks";
 import { newId } from "@/lib/ids";
@@ -46,14 +46,14 @@ runScript("report:daily", async (db) => {
   const resolvedToday = db
     .select()
     .from(paperTrades)
-    .where(and(eq(paperTrades.status, "resolved"), eq(paperTrades.track, "core")))
+    .where(and(ne(paperTrades.status, "open"), eq(paperTrades.track, "core")))
     .all()
-    .filter((t) => t.resolvedAt && t.resolvedAt >= dayStart);
+    .filter((t) => (t.resolvedAt && t.resolvedAt >= dayStart) || (t.closedAt && t.closedAt >= dayStart));
   const pnlToday = resolvedToday.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
 
   // ⚡ Live experiment ledger (separate books — reported on its own line).
   const liveTrades = db.select().from(paperTrades).where(eq(paperTrades.track, "live")).all();
-  const liveResolved = liveTrades.filter((t) => t.status === "resolved");
+  const liveResolved = liveTrades.filter((t) => t.status !== "open");
   const livePnl =
     liveResolved.reduce((a, t) => a + (t.realizedPnl ?? 0), 0) +
     liveTrades.filter((t) => t.status === "open").reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);

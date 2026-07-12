@@ -160,6 +160,37 @@ export function markPaperTrade(
   return { price, unrealizedPnl };
 }
 
+/**
+ * Close an open paper trade early by simulating a sell into the current bids
+ * (copying the tracked wallet's exit). Realized PnL = what the bids pay minus
+ * what we spent. Returns null if the bid side is empty (can't price the exit).
+ */
+export function closePaperTrade(
+  db: Db,
+  trade: PaperTradeRow,
+  book: OrderBook,
+  now: Date = new Date(),
+): { realizedPnl: number; exitPrice: number } | null {
+  const exitValue = markToBid(book.bids, trade.shares);
+  const price = book.bestBid;
+  if (exitValue === null || price === null) return null;
+  const realizedPnl = exitValue - trade.simulatedPositionSize;
+  db.update(paperTrades)
+    .set({
+      status: "closed",
+      realizedPnl,
+      unrealizedPnl: null,
+      currentPrice: price,
+      closedAt: now,
+    })
+    .where(eq(paperTrades.id, trade.id))
+    .run();
+  db.insert(pnlSnapshots)
+    .values({ id: newId(), paperTradeId: trade.id, price, pnl: realizedPnl, collectedAt: now })
+    .run();
+  return { realizedPnl, exitPrice: price };
+}
+
 /** Resolve a paper trade when its market resolves. Payout: 1 if won, 0 if lost. */
 export function resolvePaperTrade(
   db: Db,

@@ -21,9 +21,87 @@ export interface WalletProfileMetrics {
   liveResolvedCount30d: number;
   liveWinRate30d: number | null;
   liveRoi30d: number | null;
+  swing: SwingStats;
   score: WalletScoreResult;
   status: "track" | "watch" | "ignore";
   resolvedTrades: ResolvedTradeLike[];
+}
+
+// --- quota-trader (swing) profiling -----------------------------------------
+
+export interface SwingStats {
+  sellCount: number; // raw SELL trades seen
+  matchedExitCount: number; // SELLs matched against a prior BUY (real swings)
+  swingPnl: number; // realized USD PnL from matched buy->sell pairs
+  swingWinRate: number | null; // share of matched exits with positive PnL
+  earlyExitRate: number | null; // matched sold shares / total bought shares
+  style: "holdea" | "mixto" | "tradea_cuota";
+}
+
+/**
+ * FIFO-match SELLs against earlier BUYs on the same market/outcome to measure
+ * whether a wallet trades the odds (sells positions early) instead of holding
+ * to resolution — and whether that swing trading actually makes money.
+ */
+export function buildSwingStats(trades: WalletTrade[]): SwingStats {
+  const sorted = [...trades].sort((a, b) => a.timestampMs - b.timestampMs);
+  const lots = new Map<string, { price: number; shares: number }[]>();
+  let totalBoughtShares = 0;
+  let totalMatchedShares = 0;
+  let swingPnl = 0;
+  let sellCount = 0;
+  let matchedExitCount = 0;
+  let winningExits = 0;
+
+  for (const t of sorted) {
+    if (t.price <= 0) continue;
+    const key = `${t.marketId}|${t.tokenId ?? t.outcome ?? ""}`;
+    const shares = t.sizeUsd / t.price;
+    if (t.side === "BUY") {
+      const queue = lots.get(key) ?? [];
+      queue.push({ price: t.price, shares });
+      lots.set(key, queue);
+      totalBoughtShares += shares;
+    } else {
+      sellCount++;
+      const queue = lots.get(key);
+      if (!queue || queue.length === 0) continue; // sold something we never saw bought
+      let remaining = shares;
+      let exitPnl = 0;
+      let matched = 0;
+      while (remaining > 1e-9 && queue.length > 0) {
+        const lot = queue[0];
+        const take = Math.min(remaining, lot.shares);
+        exitPnl += take * (t.price - lot.price);
+        lot.shares -= take;
+        remaining -= take;
+        matched += take;
+        if (lot.shares <= 1e-9) queue.shift();
+      }
+      if (matched > 1e-9) {
+        matchedExitCount++;
+        swingPnl += exitPnl;
+        totalMatchedShares += matched;
+        if (exitPnl > 0) winningExits++;
+      }
+    }
+  }
+
+  const earlyExitRate = totalBoughtShares > 0 ? totalMatchedShares / totalBoughtShares : null;
+  const style: SwingStats["style"] =
+    earlyExitRate === null || earlyExitRate < 0.15
+      ? "holdea"
+      : earlyExitRate < 0.5
+        ? "mixto"
+        : "tradea_cuota";
+  return {
+    sellCount,
+    matchedExitCount,
+    swingPnl,
+    swingWinRate: matchedExitCount > 0 ? winningExits / matchedExitCount : null,
+    earlyExitRate,
+    style,
+  };
 }
 
 export function buildResolvedTrades(
@@ -102,6 +180,7 @@ export function profileWallet(
     liveResolvedCount30d: liveResolved.length,
     liveWinRate30d: liveResolved.length ? liveWins / liveResolved.length : null,
     liveRoi30d: liveCost > 0 ? livePnl / liveCost : null,
+    swing: buildSwingStats(trades),
     score,
     status: statusForScore(score.globalScore, rules),
     resolvedTrades,

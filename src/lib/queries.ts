@@ -21,7 +21,8 @@ export function getOverviewStats(db: Db) {
   // Core ledger only — the live experiment keeps its own books (see getLiveStats).
   const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "core")).all();
   const open = trades.filter((t) => t.status === "open");
-  const resolved = trades.filter((t) => t.status === "resolved");
+  // "closed" = exit copied from the wallet's SELL; realized like a resolution.
+  const resolved = trades.filter((t) => t.status !== "open");
   const realized = resolved.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
   const unrealized = open.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
   const wins = resolved.filter((t) => (t.realizedPnl ?? 0) > 0).length;
@@ -101,8 +102,9 @@ export function getDecisionOutcomes(db: Db): DecisionOutcomeRow[] {
     const review = reviewByDecision.get(d.id);
     const obs = observedById.get(d.observedTradeId);
 
-    const resolved = Boolean(paper?.status === "resolved" || (review && review.finalOutcome && review.finalOutcome !== "pending"));
-    const paperPnl = paper?.status === "resolved" ? (paper.realizedPnl ?? null) : null;
+    const paperRealized = paper !== undefined && paper.status !== "open"; // resolved or exit-copied close
+    const resolved = Boolean(paperRealized || (review && review.finalOutcome && review.finalOutcome !== "pending"));
+    const paperPnl = paperRealized ? (paper.realizedPnl ?? null) : null;
 
     let hypo: number | null = null;
     const entry = obs?.detectedPrice ?? obs?.walletEntryPrice ?? null;
@@ -202,7 +204,7 @@ export function getInPlayPaperPerformance(db: Db) {
     const g = r.track === "live" ? groups.live : groups.preGame;
     g.count++;
     g.totalPnl += r.realizedPnl ?? r.unrealizedPnl ?? 0;
-    if (r.status === "resolved") {
+    if (r.status !== "open") {
       g.resolvedCount++;
       if ((r.realizedPnl ?? 0) > 0) g.wins++;
     }
@@ -226,7 +228,7 @@ export function getLiveStats(db: Db) {
     .orderBy(desc(paperTrades.openedAt))
     .all();
   const open = trades.filter((t) => t.status === "open");
-  const resolved = trades.filter((t) => t.status === "resolved");
+  const resolved = trades.filter((t) => t.status !== "open"); // resolved or exit-copied close
   const realized = resolved.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
   const unrealized = open.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
   const wins = resolved.filter((t) => (t.realizedPnl ?? 0) > 0).length;

@@ -4,7 +4,7 @@ import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
-import { openPaperTrade } from "@/lib/paper/engine";
+import { closePaperTrade, openPaperTrade } from "@/lib/paper/engine";
 import { getActiveRules } from "@/lib/rules";
 import { scoreTrade } from "@/lib/scoring/tradeScoring";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
@@ -50,7 +50,7 @@ runScript("score:trades", async (db) => {
 
   const marketCache = new Map<string, MarketInfo>();
   const bookCache = new Map<string, OrderBook>();
-  const counts = { paper_copy: 0, watchlist: 0, skip: 0, unfillable: 0 };
+  const counts = { paper_copy: 0, watchlist: 0, skip: 0, unfillable: 0, exits: 0 };
 
   for (const obs of pending) {
     const now = new Date();
@@ -141,6 +141,40 @@ runScript("score:trades", async (db) => {
     const journalId = newId();
     let filled = false;
     let decision = result.decision;
+
+    // --- copy the exit: the wallet we copied just SOLD this market/outcome ---
+    // Close our open paper copies of THAT wallet at the current bids (both
+    // ledgers). This mirrors the wallet's real behavior instead of blindly
+    // holding to resolution.
+    if (obs.side === "SELL" && book) {
+      const exitConds = [
+        eq(paperTrades.status, "open"),
+        eq(paperTrades.marketId, obs.marketId),
+        eq(paperTrades.walletAddress, obs.walletAddress),
+      ];
+      if (obs.outcome) exitConds.push(eq(paperTrades.outcome, obs.outcome));
+      const openCopies = db.select().from(paperTrades).where(and(...exitConds)).all();
+      for (const pos of openCopies) {
+        const closed = closePaperTrade(db, pos, book, now);
+        if (!closed) {
+          risks.push("wallet sold but the bid side is empty — paper position left open");
+          continue;
+        }
+        counts.exits++;
+        reasons.push(
+          `exit copied: closed ${pos.track} paper position at ${(closed.exitPrice * 100).toFixed(1)}¢ (pnl $${closed.realizedPnl.toFixed(2)})`,
+        );
+        if (telegramConfigured()) {
+          const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
+          const emoji = closed.realizedPnl >= 0 ? "🟩" : "🟥";
+          await sendTelegramMessage(
+            `📤 <b>La Sombra — salida copiada (PAPEL${pos.track === "live" ? " ⚡" : ""})</b>\n${q}\n` +
+              `La billetera ${obs.walletAddress.slice(0, 10)}… vendió — cerramos a ${(closed.exitPrice * 100).toFixed(1)}¢\n` +
+              `${emoji} PnL realizado $${closed.realizedPnl.toFixed(2)}`,
+          );
+        }
+      }
+    }
 
     // Exposure guard: never stack OPEN paper positions on the same
     // market/outcome — a wallet re-buying (or a second wallet on the same
@@ -304,6 +338,6 @@ runScript("score:trades", async (db) => {
   }
 
   log.info(
-    `decisions: ${counts.paper_copy} paper copies, ${counts.watchlist} watchlist, ${counts.skip} skips, ${counts.unfillable} unfillable`,
+    `decisions: ${counts.paper_copy} paper copies, ${counts.watchlist} watchlist, ${counts.skip} skips, ${counts.unfillable} unfillable, ${counts.exits} exits copied`,
   );
 });

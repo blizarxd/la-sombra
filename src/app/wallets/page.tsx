@@ -45,6 +45,7 @@ export default function WalletsPage() {
               <Th className="text-right">Consistencia</Th>
               <Th className="text-right">Copiabilidad</Th>
               <Th className="text-right">Pen. suerte</Th>
+              <Th>Estilo</Th>
               <Th>Mejor categoría</Th>
               <Th>Motivo</Th>
             </tr>
@@ -73,6 +74,23 @@ export default function WalletsPage() {
                 <Td className="text-right">{score(w.copyabilityScore)}</Td>
                 <Td className={`text-right ${(w.oneHitWonderPenalty ?? 0) > 30 ? "text-loss" : "text-mist"}`}>
                   {score(w.oneHitWonderPenalty)}
+                </Td>
+                <Td>
+                  {w.tradingStyle ? (
+                    <>
+                      <Badge value={w.tradingStyle} />
+                      {w.tradingStyle !== "holdea" ? (
+                        <div className="mt-0.5 text-[11px] text-mist">
+                          sale antes {pct(w.earlyExitRate)} · swing{" "}
+                          <span className={(w.swingPnl30d ?? 0) >= 0 ? "text-profit" : "text-loss"}>
+                            ${(w.swingPnl30d ?? 0).toFixed(0)}
+                          </span>
+                        </div>
+                      ) : null}
+                    </>
+                  ) : (
+                    "—"
+                  )}
                 </Td>
                 <Td>{w.bestCategory ?? "—"}</Td>
                 <Td className="max-w-72 text-xs text-mist">{w.copyabilityNotes ?? "—"}</Td>

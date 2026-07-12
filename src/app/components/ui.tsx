@@ -45,6 +45,9 @@ const badgeTones: Record<string, string> = {
   lost: "bg-rose-950 text-loss border-rose-800",
   resolved: "bg-slate-800 text-bright border-slate-600",
   demo: "bg-fuchsia-950 text-fuchsia-300 border-fuchsia-800",
+  holdea: "bg-slate-800 text-mist border-slate-700",
+  mixto: "bg-sky-950 text-accent border-sky-800",
+  tradea_cuota: "bg-violet-950 text-violet-300 border-violet-800",
 };
 
 const badgeLabels: Record<string, string> = {
@@ -61,6 +64,9 @@ const badgeLabels: Record<string, string> = {
   lost: "perdido",
   resolved: "resuelto",
   demo: "demo",
+  holdea: "holdea",
+  mixto: "mixto",
+  tradea_cuota: "tradea cuota",
 };
 
 export function Badge({ value }: { value: string }) {

@@ -2,7 +2,7 @@ import "../env";
 import Anthropic from "@anthropic-ai/sdk";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { aiAnalyses, decisionJournal, outcomeReviews, paperTrades } from "@/db/schema";
+import { aiAnalyses, decisionJournal, outcomeReviews, paperTrades, walletProfiles } from "@/db/schema";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import {
@@ -171,6 +171,22 @@ function gatherEvidence(db: Db) {
     },
     ledgerComparison: ledgers,
     walletPaperPerformance: walletPerf.slice(0, 12),
+    // Trading style of the tracked wallets: do they hold to resolution or
+    // trade the odds (sell early)? Exits are copied in paper since v0005.
+    trackedWalletStyles: db
+      .select({
+        address: walletProfiles.address,
+        globalScore: walletProfiles.globalScore,
+        tradingStyle: walletProfiles.tradingStyle,
+        earlyExitRate: walletProfiles.earlyExitRate,
+        swingPnl30d: walletProfiles.swingPnl30d,
+        swingWinRate30d: walletProfiles.swingWinRate30d,
+      })
+      .from(walletProfiles)
+      .where(eq(walletProfiles.status, "track"))
+      .orderBy(desc(walletProfiles.globalScore))
+      .limit(15)
+      .all(),
     settledCopySamples: copySamples,
     ruleBounds: RULE_BOUNDS,
     tunableKeys: Object.keys(AI_TUNABLE),
@@ -178,7 +194,8 @@ function gatherEvidence(db: Db) {
 }
 
 const SYSTEM_PROMPT = `Eres el analista experto de "La Sombra", un bot de investigación de copy trading en Polymarket que opera SOLO EN PAPEL (nunca dinero real). Conoces el proyecto a fondo:
-- Estrategia principal (core): copia pre-partido con banda de entrada, guardia de entrada tardía, filtros de spread/liquidez, y un benchmark contra "copia ciega" del leaderboard.
+- Estrategia principal (core): copia pre-partido con banda de entrada, guardia de entrada tardía, filtros de spread/liquidez, y un benchmark contra "copia ciega" del leaderboard. Si la billetera copiada VENDE su posición, el bot también cierra la copia en papel (salida copiada, status "closed").
+- Perfil de estilo por billetera (trackedWalletStyles): "holdea" = sostiene hasta resolución, "tradea_cuota" = vende posiciones antes (swing sobre la cuota), "mixto" = ambas. swingPnl30d dice si ese swing les gana dinero de verdad.
 - Experimento en vivo (live): libro separado que copia apuestas in-play (con el juego en marcha), tamaño fijo, sin guardia de deriva — mide si copiar en vivo es rentable pese a la latencia.
 - Ambas estrategias tienen su propio set de reglas versionado que se automejora.
 

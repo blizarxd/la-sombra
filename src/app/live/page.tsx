@@ -70,7 +70,7 @@ export default function LivePage() {
             </thead>
             <tbody>
               {live.trades.map((t) => {
-                const pnl = t.status === "resolved" ? t.realizedPnl : t.unrealizedPnl;
+                const pnl = t.status !== "open" ? t.realizedPnl : t.unrealizedPnl;
                 return (
                   <tr key={t.id}>
                     <Td className="whitespace-nowrap text-mist">{when(t.openedAt)}</Td>

@@ -28,7 +28,7 @@ export default function PaperTradesPage() {
   const decisionById = new Map(decisions.map((d) => [d.id, d]));
   const fill = getFillRateStats(db);
 
-  const realized = trades.filter((t) => t.status === "resolved").reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+  const realized = trades.filter((t) => t.status !== "open").reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
   const unrealized = trades.filter((t) => t.status === "open").reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
   const spreadPaid = trades.reduce((a, t) => a + (t.spreadCostPaid ?? 0), 0);
 
@@ -69,7 +69,7 @@ export default function PaperTradesPage() {
           <tbody>
             {trades.map((t) => {
               const d = decisionById.get(t.decisionJournalId);
-              const pnl = t.status === "resolved" ? t.realizedPnl : t.unrealizedPnl;
+              const pnl = t.status !== "open" ? t.realizedPnl : t.unrealizedPnl;
               const reasons = d ? parseJsonList(d.reasonsJson) : [];
               return (
                 <tr key={t.id}>

@@ -49,6 +49,13 @@ export const walletProfiles = sqliteTable(
     liveResolvedCount30d: integer("live_resolved_count_30d"),
     liveWinRate30d: real("live_win_rate_30d"),
     liveRoi30d: real("live_roi_30d"),
+    // Quota-trader (swing) sub-metrics: does the wallet sell positions early,
+    // trading the odds instead of holding to resolution — and profitably?
+    sellCount30d: integer("sell_count_30d"),
+    earlyExitRate: real("early_exit_rate"),
+    swingPnl30d: real("swing_pnl_30d"),
+    swingWinRate30d: real("swing_win_rate_30d"),
+    tradingStyle: text("trading_style"), // "holdea" | "mixto" | "tradea_cuota"
     averageLiquidity: real("average_liquidity"),
     averageSpread: real("average_spread"),
     averageEntryTiming: real("average_entry_timing"),
