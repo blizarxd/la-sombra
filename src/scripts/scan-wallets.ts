@@ -58,15 +58,18 @@ runScript("scan:wallets", async (db) => {
         for (const m of markets) if (m.conditionId) marketCache.set(m.conditionId, m);
       }
       const metrics = profileWallet(trades, marketCache, rules);
-      const reason =
-        metrics.status === "track"
+      // A wallet benched for bleeding paper copies is never re-promoted by score.
+      const status = wallet.benched ? "ignore" : metrics.status;
+      const reason = wallet.benched
+        ? `benched: auto-downgraded for losing paper copies (score ${Math.round(metrics.score.globalScore)} ignored)`
+        : status === "track"
           ? `global score ${Math.round(metrics.score.globalScore)} >= ${rules.minWalletGlobalScore}`
-          : metrics.status === "watch"
+          : status === "watch"
             ? `global score ${Math.round(metrics.score.globalScore)} in watch band`
             : `global score ${Math.round(metrics.score.globalScore)} too low`;
       db.update(walletProfiles)
         .set({
-          status: metrics.status,
+          status,
           roi30d: metrics.roi30d,
           consistencyScore: metrics.score.consistencyScore,
           copyabilityScore: metrics.score.copyabilityScore,

@@ -1,0 +1,1 @@
+ALTER TABLE `wallet_profiles` ADD `benched` integer DEFAULT false NOT NULL;

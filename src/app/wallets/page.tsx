@@ -2,8 +2,9 @@ import Link from "next/link";
 import { desc, isNotNull } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { walletProfiles } from "@/db/schema";
+import { getWalletPaperPerformance } from "@/lib/queries";
 import { isDemo, pct, score, shortAddr } from "@/lib/format";
-import { Badge, DemoTag, Empty, Table, Td, Th } from "../components/ui";
+import { Badge, Card, DemoTag, Empty, PnlText, Table, Td, Th } from "../components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,9 @@ export default function WalletsPage() {
     .limit(500)
     .all();
   const unscored = db.select({ id: walletProfiles.id }).from(walletProfiles).all().length - scored.length;
+  // Per-book rankings (by paper PnL) so each ledger's best/worst wallets show here too.
+  const liveRank = getWalletPaperPerformance(db, "live").sort((a, b) => b.totalPnl - a.totalPnl);
+  const tradeRank = getWalletPaperPerformance(db, "trade").sort((a, b) => b.totalPnl - a.totalPnl);
 
   return (
     <div className="space-y-4">
@@ -27,6 +31,11 @@ export default function WalletsPage() {
           {unscored > 0 ? ` ${unscored} billeteras esperan perfilado profundo (npm run scan:wallets).` : ""}
         </p>
       </header>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <RankCard title="Ranking ⚡ En Vivo (por PnL en papel)" rows={liveRank} empty="Aún no hay copias en vivo por billetera." />
+        <RankCard title="Ranking 🔁 Trade (por PnL en papel)" rows={tradeRank} empty="Aún no hay copias de cuota por billetera." />
+      </div>
 
       {scored.length === 0 ? (
         <Empty>
@@ -100,5 +109,36 @@ export default function WalletsPage() {
         </Table>
       )}
     </div>
+  );
+}
+
+function RankCard({
+  title,
+  rows,
+  empty,
+}: {
+  title: string;
+  rows: { walletAddress: string; totalPnl: number; tradeCount: number }[];
+  empty: string;
+}) {
+  return (
+    <Card title={title}>
+      {rows.length === 0 ? (
+        <Empty>{empty}</Empty>
+      ) : (
+        <ul className="space-y-2 text-sm">
+          {rows.slice(0, 10).map((w) => (
+            <li key={w.walletAddress} className="flex justify-between">
+              <Link href={`/wallets/${w.walletAddress}`} className="text-accent hover:underline">
+                {shortAddr(w.walletAddress)}
+              </Link>
+              <span>
+                {w.tradeCount} trades · <PnlText value={w.totalPnl} />
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
   );
 }

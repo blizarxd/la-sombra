@@ -61,6 +61,10 @@ export const walletProfiles = sqliteTable(
     averageEntryTiming: real("average_entry_timing"),
     copyabilityNotes: text("copyability_notes"),
     riskNotes: text("risk_notes"),
+    // Sticky bench: once auto-downgraded for bleeding paper copies, the wallet
+    // stays out even if its leaderboard score would re-promote it. Prevents the
+    // downgrade<->reprofile oscillation that kept copying a losing wallet.
+    benched: integer("benched", { mode: "boolean" }).notNull().default(false),
     lastScannedAt: integer("last_scanned_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),

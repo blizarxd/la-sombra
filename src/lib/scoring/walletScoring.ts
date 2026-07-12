@@ -206,3 +206,23 @@ export function statusForScore(globalScore: number, rules: Rules): "track" | "wa
   if (globalScore >= rules.minWalletGlobalScore * 0.7) return "watch";
   return "ignore";
 }
+
+/**
+ * Policy for downgrading a wallet on its REALIZED paper-copy performance.
+ * Hard bleed (< -$10 over ≥3 settled copies) → ignore + permanent bench so the
+ * profiler can't re-promote it on leaderboard score; soft bleed (-$5..-$10) →
+ * watch. Returns null when no change is warranted. Pure so it's testable.
+ */
+export function decideWalletBench(
+  current: { status: "track" | "watch" | "ignore"; benched: boolean },
+  perf: { pnl: number; n: number },
+): { status: "track" | "watch" | "ignore"; benched: boolean } | null {
+  if (perf.n < 3 || perf.pnl >= -5) return null;
+  const bleed = perf.pnl < -10;
+  const targetStatus: "ignore" | "watch" = bleed ? "ignore" : "watch";
+  // Never re-open a benched/ignored wallet; keep it ignored.
+  const status = current.status === "ignore" || current.benched ? "ignore" : targetStatus;
+  const benched = bleed ? true : current.benched;
+  if (status === current.status && benched === current.benched) return null;
+  return { status, benched };
+}

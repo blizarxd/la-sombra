@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@/db/client";
-import { getLiveStats, getPnlSeries, getRealizedPnlSeries } from "@/lib/queries";
+import { getLiveStats, getPnlSeries, getRealizedPnlSeries, getWalletPaperPerformance } from "@/lib/queries";
 import { money, pct, price, score, shortAddr, when } from "@/lib/format";
 import { Badge, Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
@@ -12,6 +12,7 @@ export default function LivePage() {
   const live = getLiveStats(db);
   const series = getPnlSeries(db, "live");
   const realizedSeries = getRealizedPnlSeries(db, "live");
+  const byWallet = getWalletPaperPerformance(db, "live").sort((a, b) => b.totalPnl - a.totalPnl);
   const pnlTone = live.totalPnl > 0 ? "profit" : live.totalPnl < 0 ? "loss" : "neutral";
 
   return (
@@ -94,6 +95,25 @@ export default function LivePage() {
               })}
             </tbody>
           </Table>
+        )}
+      </Card>
+
+      <Card title="Rendimiento por billetera (libro en vivo)">
+        {byWallet.length === 0 ? (
+          <Empty>Aún no hay copias en vivo por billetera.</Empty>
+        ) : (
+          <ul className="space-y-2 text-sm">
+            {byWallet.map((w) => (
+              <li key={w.walletAddress} className="flex justify-between">
+                <Link href={`/wallets/${w.walletAddress}`} className="text-accent hover:underline">
+                  {shortAddr(w.walletAddress)}
+                </Link>
+                <span>
+                  {w.tradeCount} trades · <PnlText value={w.totalPnl} />
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </Card>
 

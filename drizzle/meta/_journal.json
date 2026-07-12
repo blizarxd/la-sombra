@@ -43,6 +43,13 @@
       "when": 1783875795672,
       "tag": "0005_classy_santa_claus",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1783892080947,
+      "tag": "0006_glorious_peter_parker",
+      "breakpoints": true
     }
   ]
 }

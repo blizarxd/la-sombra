@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { decisionJournal, outcomeReviews, paperTrades, walletProfiles } from "@/db/schema";
 import { log } from "@/lib/logger";
 import { applyRuleChanges, clampRuleValue, getActiveRules, type RuleChangeInput } from "@/lib/rules";
+import { decideWalletBench } from "@/lib/scoring/walletScoring";
 import { runScript } from "./_runner";
 
 /**
@@ -188,7 +189,7 @@ runScript("update:rules", async (db) => {
   // ---- wallet downgrades based on realized paper performance ----
   const perByWallet = new Map<string, { pnl: number; n: number }>();
   for (const t of trades) {
-    if (t.status !== "resolved") continue;
+    if (t.status === "open") continue; // resolved OR exit-closed = realized
     const cur = perByWallet.get(t.walletAddress) ?? { pnl: 0, n: 0 };
     cur.pnl += t.realizedPnl ?? 0;
     cur.n += 1;
@@ -196,15 +197,15 @@ runScript("update:rules", async (db) => {
   }
   let downgrades = 0;
   for (const [address, perf] of perByWallet) {
-    if (perf.n < 3 || perf.pnl >= -5) continue;
     const wallet = db.select().from(walletProfiles).where(eq(walletProfiles.address, address)).get();
-    if (!wallet || wallet.status === "ignore") continue;
-    const newStatus = perf.pnl < -10 ? "ignore" : "watch";
-    if (newStatus === wallet.status) continue;
-    const note = `auto-downgrade ${wallet.status} -> ${newStatus}: ${perf.n} resolved copies, paper pnl $${perf.pnl.toFixed(2)} (${new Date().toISOString()})`;
+    if (!wallet) continue;
+    const decision = decideWalletBench({ status: wallet.status, benched: wallet.benched }, perf);
+    if (!decision) continue;
+    const note = `auto-downgrade ${wallet.status} -> ${decision.status}${decision.benched && !wallet.benched ? " (benched)" : ""}: ${perf.n} resolved copies, paper pnl $${perf.pnl.toFixed(2)} (${new Date().toISOString()})`;
     db.update(walletProfiles)
       .set({
-        status: newStatus,
+        status: decision.status,
+        benched: decision.benched,
         riskNotes: wallet.riskNotes ? `${wallet.riskNotes}; ${note}` : note,
         updatedAt: new Date(),
       })

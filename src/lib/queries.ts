@@ -167,8 +167,8 @@ export function getLatestSnapshots(db: Db, marketIds: string[]) {
   return map;
 }
 
-/** Per-wallet paper performance (realized + unrealized). */
-export function getWalletPaperPerformance(db: Db) {
+/** Per-wallet paper performance (realized + unrealized) for a given ledger. */
+export function getWalletPaperPerformance(db: Db, track: "core" | "live" | "trade" = "core") {
   const rows = db
     .select({
       walletAddress: paperTrades.walletAddress,
@@ -177,7 +177,7 @@ export function getWalletPaperPerformance(db: Db) {
       count: sql<number>`count(*)`,
     })
     .from(paperTrades)
-    .where(eq(paperTrades.track, "core"))
+    .where(eq(paperTrades.track, track))
     .groupBy(paperTrades.walletAddress)
     .all();
   return rows.map((r) => ({
