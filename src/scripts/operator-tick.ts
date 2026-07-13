@@ -26,7 +26,14 @@ const projectRoot = path.resolve(scriptsDir, "..", "..");
 // cloud) so a redeploy does not re-trigger the daily cycle.
 const statePath = path.join(path.dirname(getDbPath()), "operator-state.json");
 
-type State = { lastDailyRun?: string };
+type State = { lastDailyRun?: string; lastCycleToken?: string };
+
+// One-shot force token: bump this string in a deploy to force the DAILY cycle
+// (self-improve rules + AI analyst + EOD report) to run ONCE on the next tick,
+// regardless of whether it already ran today. Used to push a fresh AI "cut"
+// right after a meaningful change (e.g. removing the core stop-loss). It fires
+// exactly once per new token because the tick records it in operator-state.json.
+const DAILY_CYCLE_TOKEN = "2026-07-13-core-original-restored";
 
 function readState(): State {
   try {
@@ -139,9 +146,12 @@ async function main() {
   const today = todayKey();
   const firstOfDay = state.lastDailyRun !== today;
   const bootstrap = !hasWalletQueue();
-  if (firstOfDay || bootstrap) {
+  const forced = state.lastCycleToken !== DAILY_CYCLE_TOKEN; // one-shot deploy force
+  if (firstOfDay || bootstrap || forced) {
     log.info(
-      `[operator:tick] running DAILY cycle (${firstOfDay ? "first tick of the day" : "bootstrap: empty wallet queue"})`,
+      `[operator:tick] running DAILY cycle (${
+        forced ? `forced by token ${DAILY_CYCLE_TOKEN}` : firstOfDay ? "first tick of the day" : "bootstrap: empty wallet queue"
+      })`,
     );
     step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
     step("scan-crypto-markets.ts"); // mine crypto-active wallets the PnL board hides
@@ -152,7 +162,7 @@ async function main() {
     step("update-rules-trade.ts"); // self-improve TRADE book (quota-scalpers) on its own evidence
     step("ai-analyst.ts"); // expert AI layer: reasoning + recommendations + bounded auto-tuning
     step("report-daily.ts");
-    writeState({ ...state, lastDailyRun: today });
+    writeState({ ...state, lastDailyRun: today, lastCycleToken: DAILY_CYCLE_TOKEN });
   } else {
     log.info("[operator:tick] daily cycle already done today — frequent cycle only");
   }

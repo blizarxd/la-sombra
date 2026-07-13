@@ -79,22 +79,6 @@ export function markToBid(bids: BookLevel[], shares: number): number | null {
   return usdReceived;
 }
 
-/**
- * Paper stop-loss decision (pure). Closes a losing open position early instead
- * of riding it to resolution. Addresses the asymmetric payoff the AI flagged on
- * core (wins often, but the losers bleed big on expensive favorites). Triggers
- * when the mark-to-bid value has dropped at least `stopLossPct` of the cost.
- */
-export function shouldStopLoss(
-  cost: number,
-  markValue: number,
-  stopLossPct: number | undefined,
-): boolean {
-  if (!stopLossPct || stopLossPct <= 0 || cost <= 0) return false;
-  const lossFraction = (cost - markValue) / cost;
-  return lossFraction >= stopLossPct;
-}
-
 export interface OpenPaperTradeInput {
   decisionJournalId: string;
   walletAddress: string;
