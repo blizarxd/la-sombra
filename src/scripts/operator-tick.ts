@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isNotNull } from "drizzle-orm";
+import { isNotNull, like } from "drizzle-orm";
 import { getDb, getDbPath } from "../db/client";
 import { walletProfiles } from "../db/schema";
 import { log } from "../lib/logger";
@@ -59,13 +59,13 @@ function hasWalletQueue(): boolean {
   }
 }
 
-/** True once at least one wallet has been sourced by market mining. */
-function hasSourcedWallets(): boolean {
+/** True once at least one wallet carries the given source tag. */
+function hasSourceTag(tag: string): boolean {
   try {
     const rows = getDb()
       .select({ id: walletProfiles.id })
       .from(walletProfiles)
-      .where(isNotNull(walletProfiles.sources))
+      .where(like(walletProfiles.sources, `%${tag}%`))
       .limit(1)
       .all();
     return rows.length > 0;
@@ -100,14 +100,16 @@ async function main() {
   step("paper-update-pnl.ts");
   step("review-outcomes.ts");
 
-  // Sourcing bootstrap: if market-mining has never run (fresh deploy of the
-  // feature), mine crypto + fast markets NOW and profile a batch, so the
-  // /cripto and /cazador desks populate within minutes instead of waiting for
-  // the next daily cycle. Runs once, then the daily cycle keeps it fresh.
-  if (!hasSourcedWallets()) {
-    log.info("[operator:tick] sourcing bootstrap: mining markets for the first time");
-    step("scan-crypto-markets.ts");
-    step("scan-fast-markets.ts");
+  // Sourcing bootstrap: seed each desk's wallet pool from market mining without
+  // waiting for the daily cycle. Checked PER TAG so a transient failure of one
+  // miner (e.g. a rate-limited API call) is retried on the next tick instead of
+  // being permanently skipped once the other tag succeeded.
+  const needCrypto = !hasSourceTag("crypto-market");
+  const needFast = !hasSourceTag("fast-market");
+  if (needCrypto || needFast) {
+    log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast})`);
+    if (needCrypto) step("scan-crypto-markets.ts");
+    if (needFast) step("scan-fast-markets.ts");
     step("scan-wallets.ts", ["--limit", "30"]); // profile a batch (reaches sourced wallets)
   }
 
