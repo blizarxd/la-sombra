@@ -225,20 +225,31 @@ export default function PerformancePage() {
           <Empty>Aún no hay suficientes trades resueltos para proyectar (se necesitan ≥5).</Empty>
         ) : (
           <>
-            <div className="mb-3 text-xs text-mist">
-              Core aguanta cada copia hasta resolución, así que las abiertas obedecen a{" "}
-              <b>Ley de Little: abiertas ≈ (copias que califican/día) × (días promedio abiertas)</b>. Acortar la ventana
-              baja las dos cosas. Ahora mismo: <b>{windowProj.currentOpen} abiertas</b>, ritmo{" "}
-              <b>{windowProj.arrivalPerDay}/día</b>, hold mediano <b>{windowProj.medianHoldDays}d</b>.
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <Stat label="Abiertas ahora" value={String(windowProj.currentOpen)} />
+              <Stat label="Copias/día" value={String(windowProj.arrivalPerDay)} />
+              <Stat label="Hold promedio real" value={`${windowProj.impliedAvgHoldDays}d`} hint="insesgado (abiertas ÷ ritmo)" />
+              <Stat label="Abiertas > 5 días" value={String(windowProj.openOlderThan5)} hint={`>14d: ${windowProj.openOlderThan14} · >30d: ${windowProj.openOlderThan30}`} />
+            </div>
+            <div className="mt-3 rounded-lg border border-edge bg-panel2 p-3 text-xs text-mist">
+              <b className="text-bright">Lo que dicen los datos reales:</b> el core es de <b>alta rotación</b> — entran
+              ~{windowProj.arrivalPerDay} copias/día y el hold promedio REAL es de solo{" "}
+              <b>{windowProj.impliedAvgHoldDays} día(s)</b> (la mayoría son deportes que resuelven el mismo día). Las{" "}
+              {windowProj.currentOpen} abiertas <b>no son meses de limbo</b>: solo{" "}
+              <b>{windowProj.openOlderThan5}</b> llevan más de 5 días abiertas y{" "}
+              <b>{windowProj.openOlderThan30}</b> más de 30. El tope de 30 días recorta esa <b>minoría</b> de largo plazo
+              (el capital que de verdad se estanca), sin tocar el grueso rápido.
+            </div>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-mist">
+              Proyección por ventana (referencia — sesgada a la baja por los largos aún abiertos)
             </div>
             <Table>
               <thead>
                 <tr>
                   <Th>Ventana máx.</Th>
-                  <Th className="text-right">% copias que califican</Th>
-                  <Th className="text-right">Hold prom.</Th>
-                  <Th className="text-right">Copias/día</Th>
-                  <Th className="text-right">Abiertas proyectadas</Th>
+                  <Th className="text-right">% resueltos que cerraron dentro</Th>
+                  <Th className="text-right">Hold prom. (resueltos)</Th>
+                  <Th className="text-right">Abiertas proyectadas*</Th>
                 </tr>
               </thead>
               <tbody>
@@ -251,7 +262,6 @@ export default function PerformancePage() {
                       </Td>
                       <Td className="text-right">{pct(p.qualifyShare)}</Td>
                       <Td className="text-right">{p.avgHoldDays}d</Td>
-                      <Td className="text-right">{p.copiesPerDay}</Td>
                       <Td className="text-right font-semibold">≈ {p.projectedOpen}</Td>
                     </tr>
                   );
@@ -259,10 +269,9 @@ export default function PerformancePage() {
               </tbody>
             </Table>
             <div className="mt-3 text-xs text-mist">
-              Estimación desde el historial de trades <b>ya resueltos</b> (los de muy largo plazo aún abiertos no entran,
-              así que las ventanas grandes están, si acaso, subestimadas). La columna clave es <b>Abiertas proyectadas</b>:
-              es cuánto capital (en papel) tendrías parado en equilibrio con esa ventana. Menos ventana = menos abiertas =
-              feedback más rápido.
+              *Estimación desde trades <b>ya resueltos</b>, que están sesgados a los rápidos (los largos siguen abiertos),
+              así que subestima. El número honesto para juzgar el capital parado es <b>&quot;Abiertas &gt; 30 días&quot;</b> arriba.
+              Menos ventana = menos limbo largo = feedback realizado más rápido.
             </div>
           </>
         )}

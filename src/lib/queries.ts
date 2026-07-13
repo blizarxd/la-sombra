@@ -706,11 +706,29 @@ export function getResolutionWindowProjection(db: Db, track: "core" | "live" | "
     ? Math.round(sortedHold[Math.floor(sortedHold.length / 2)] * 10) / 10
     : 0;
 
+  const currentOpen = trades.filter((t) => t.status === "open").length;
+  // UNBIASED average hold from the live system (Little's Law inverted):
+  // L = λ·W  ->  W = L/λ. Unlike the settled-only sample this includes the
+  // long-dated positions still open, so it doesn't undercount the slow tail.
+  const impliedAvgHoldDays =
+    arrivalPerDay > 0 ? Math.round((currentOpen / arrivalPerDay) * 10) / 10 : 0;
+
+  // Ages (days) of the positions still OPEN — reveals the long-dated tail the
+  // settled sample hides. How many open right now are older than each window.
+  const openAges = trades
+    .filter((t) => t.status === "open")
+    .map((t) => (now - t.openedAt.getTime()) / DAY);
+  const openOlderThan = (d: number) => openAges.filter((a) => a > d).length;
+
   return {
-    currentOpen: trades.filter((t) => t.status === "open").length,
+    currentOpen,
     settledSample: holdDays.length,
     arrivalPerDay: Math.round(arrivalPerDay * 10) / 10,
     medianHoldDays,
+    impliedAvgHoldDays,
+    openOlderThan5: openOlderThan(5),
+    openOlderThan14: openOlderThan(14),
+    openOlderThan30: openOlderThan(30),
     projection: projectOpenByWindow(holdDays, arrivalPerDay, [3, 5, 14, 30, 45]),
   };
 }
