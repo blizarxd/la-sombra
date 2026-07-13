@@ -54,6 +54,13 @@ const liveMinutes = Math.max(1, Number(process.env.LIVE_MONITOR_MINUTES ?? 2));
 
 // One shared mutex: never run two child passes at once (avoids double-scoring
 // the same observed trades and keeps the API load bounded).
+//
+// WATCHDOG: a child pass gets a hard timeout. Without it, a single sub-script
+// hanging on an upstream API call (no per-request timeout) would block the child
+// forever, leave `busy` stuck true, and silently skip every future tick — the
+// bot goes mute until a container restart. The timeout kills the hung child and
+// frees the mutex so the next tick recovers on its own. Kept under the interval.
+const CHILD_TIMEOUT_MS = Math.min(15 * 60_000, Math.max(60_000, intervalMs - 60_000));
 let busy = false;
 function run(label: string, scriptFile: string): void {
   if (busy) {
@@ -65,12 +72,14 @@ function run(label: string, scriptFile: string): void {
   execFile(
     process.execPath,
     ["--import", "tsx", path.join(scriptsDir, scriptFile)],
-    { cwd: projectRoot, maxBuffer: 32 * 1024 * 1024 },
+    { cwd: projectRoot, maxBuffer: 32 * 1024 * 1024, timeout: CHILD_TIMEOUT_MS, killSignal: "SIGKILL" },
     (err, stdout, stderr) => {
       busy = false;
       if (stdout) process.stdout.write(stdout);
       if (stderr) process.stderr.write(stderr);
-      if (err) log.warn(`[scheduler] ${label} exited non-zero: ${err.message}`);
+      if (err && (err as unknown as { killed?: boolean }).killed)
+        log.error(`[scheduler] ${label} KILLED by watchdog after ${(CHILD_TIMEOUT_MS / 60000).toFixed(0)}m (hung) — mutex freed, next tick will retry`);
+      else if (err) log.warn(`[scheduler] ${label} exited non-zero: ${err.message}`);
       else log.info(`[scheduler] ${label} finished`);
     },
   );
