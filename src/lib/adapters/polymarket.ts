@@ -1,5 +1,11 @@
 import "../env";
-import { httpGet } from "./http";
+import {
+  type ComboActivityEvent,
+  type ComboLeaderboardRow,
+  extractProxyWalletFromProfileHtml,
+  parseComboLeaderboardHtml,
+} from "../combos";
+import { httpGet, httpGetText } from "./http";
 import {
   AdapterError,
   type LeaderboardEntry,
@@ -146,6 +152,102 @@ export async function fetchWalletTrades(
     if (reachedOld || data.length < pageSize) break;
   }
   return trades;
+}
+
+/**
+ * Wallet activity feed (data-api /activity): TRADEs, REDEEMs, etc. Unlike
+ * /trades this carries an explicit `isCombo` flag on combo (parlay) trades and
+ * shows REDEEM events — which is how combo wins are detected (verified live
+ * 2026-07-13). Returns only TRADE/REDEEM rows, newest first.
+ */
+export async function fetchWalletActivity(
+  address: string,
+  opts?: { limit?: number; sinceMs?: number },
+): Promise<ComboActivityEvent[]> {
+  if (!isRealAddress(address)) {
+    throw new AdapterError(
+      "polymarket-data-api",
+      `${DATA_API()}/activity?user=${address}`,
+      null,
+      `refusing to fetch activity for non-hex address "${address}"`,
+    );
+  }
+  const maxTotal = opts?.limit ?? 200;
+  const sinceMs = opts?.sinceMs ?? 0;
+  const pageSize = 100;
+  const events: ComboActivityEvent[] = [];
+  for (let offset = 0; offset < maxTotal; offset += pageSize) {
+    const url = `${DATA_API()}/activity?user=${address}&limit=${Math.min(pageSize, maxTotal - offset)}&offset=${offset}`;
+    const data = await httpGet("polymarket-data-api", url);
+    if (!Array.isArray(data)) {
+      throw new AdapterError("polymarket-data-api", url, 200, "unexpected activity shape (not an array)");
+    }
+    if (data.length === 0) break;
+    let reachedOld = false;
+    for (const row of data as any[]) {
+      if (row.proxyWallet && String(row.proxyWallet).toLowerCase() !== address.toLowerCase()) continue;
+      const type = String(row.type ?? "");
+      if (type !== "TRADE" && type !== "REDEEM") continue;
+      const tsMs = (num(row.timestamp) ?? 0) * 1000;
+      if (sinceMs && tsMs < sinceMs) {
+        reachedOld = true;
+        continue;
+      }
+      const side = String(row.side ?? "").toUpperCase();
+      events.push({
+        type,
+        side: side === "BUY" || side === "SELL" ? (side as "BUY" | "SELL") : null,
+        conditionId: String(row.conditionId ?? ""),
+        isCombo: Boolean(row.isCombo),
+        price: num(row.price) ?? 0,
+        usdcSize: num(row.usdcSize) ?? 0,
+        title: (row.title ?? null) as string | null,
+        timestampMs: tsMs,
+        transactionHash: (row.transactionHash ?? null) as string | null,
+      });
+    }
+    if (reachedOld || data.length < pageSize) break;
+  }
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Combo Cup leaderboard (server-rendered HTML — no JSON API exists)
+// ---------------------------------------------------------------------------
+
+const POLYMARKET_WEB = () => process.env.POLYMARKET_WEB ?? "https://polymarket.com";
+
+/**
+ * Scrape the Combo Cup leaderboard (verified live 2026-07-13: the table is in
+ * the server-rendered HTML of /leaderboard/combos/{today|yesterday}). Throws
+ * AdapterError when the page shape changed (zero rows parsed) — the caller
+ * must stop, never invent rows.
+ */
+export async function fetchComboLeaderboard(
+  period: "today" | "yesterday",
+): Promise<ComboLeaderboardRow[]> {
+  const url = `${POLYMARKET_WEB()}/leaderboard/combos/${period}`;
+  const html = await httpGetText("polymarket-web", url);
+  const rows = parseComboLeaderboardHtml(html);
+  if (rows.length === 0) {
+    throw new AdapterError(
+      "polymarket-web",
+      url,
+      200,
+      "combo leaderboard parse found 0 rows — page layout likely changed (refusing to fake data)",
+    );
+  }
+  return rows;
+}
+
+/**
+ * Resolve a Polymarket profile path ("/@username") to its proxy wallet address
+ * by reading the profile page HTML. Returns null when the page carries none.
+ */
+export async function fetchProfileProxyWallet(profilePath: string): Promise<string | null> {
+  const url = `${POLYMARKET_WEB()}${profilePath}`;
+  const html = await httpGetText("polymarket-web", url);
+  return extractProxyWalletFromProfileHtml(html);
 }
 
 /**

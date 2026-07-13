@@ -4,7 +4,7 @@ import { ruleSets, ruleChanges } from "@/db/schema";
 import { newId } from "./ids";
 
 /** Which strategy a rule lineage belongs to. */
-export type RuleScope = "core" | "live" | "trade" | "crypto";
+export type RuleScope = "core" | "live" | "trade" | "crypto" | "combo";
 
 /**
  * Versioned, self-tunable rule set. The agent may change these values
@@ -152,6 +152,32 @@ export const DEFAULT_CRYPTO_RULES: Rules = {
   maxPositionSize: 5,
 };
 
+/**
+ * 🧩 Combo book defaults. The 5th ledger paper-copies whole COMBOS (parlays,
+ * treated as a single pick) from wallets that surfaced on the Combo Cup board
+ * AND show positive combo cashflow. Combos have no order book (RFQ), so most
+ * market-microstructure gates are neutralized; the band that matters is the
+ * COMBINED price: 0.02–0.50 = multipliers between 2x and 50x — skips both the
+ * near-certain tiny payoff and the pure lottery ticket. Fixed $5.
+ *
+ * NOTE: not wired into the AI auto-tuner yet — the global RULE_BOUNDS were
+ * written for single markets (e.g. maxEntryPrice >= 0.6) and would clamp combo
+ * values into nonsense. Recommendation-only until combo evidence accumulates.
+ */
+export const DEFAULT_COMBO_RULES: Rules = {
+  ...DEFAULT_RULES,
+  minEntryPrice: 0.02, // <= 50x — beyond this it's a lottery ticket
+  maxEntryPrice: 0.5, // >= 2x — a combo priced like a favorite has no point
+  maxPriceDrift: 1, // no live re-quote available (RFQ) — guard not applicable
+  maxSpread: 1, // no public book
+  minLiquidity: 0, // no public book
+  minTimeToResolutionHours: 0,
+  maxTimeToResolutionHours: 24 * 45,
+  minWalletGlobalScore: 0, // combo wallets are gated on combo cashflow instead
+  minPositionSize: 5,
+  maxPositionSize: 5,
+};
+
 /** Get the active rule set for a scope, seeding v1 defaults if none exists. */
 export function getActiveRules(
   db: Db,
@@ -174,7 +200,9 @@ export function getActiveRules(
         ? DEFAULT_TRADE_RULES
         : scope === "crypto"
           ? DEFAULT_CRYPTO_RULES
-          : DEFAULT_RULES;
+          : scope === "combo"
+            ? DEFAULT_COMBO_RULES
+            : DEFAULT_RULES;
   db.insert(ruleSets)
     .values({
       id,

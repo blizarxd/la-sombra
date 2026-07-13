@@ -88,8 +88,8 @@ export interface OpenPaperTradeInput {
   outcome: string | null;
   usdSize: number;
   book: OrderBook;
-  /** Ledger: "core" (main strategy), "live" (in-play experiment), "trade" (quota-scalper book) or "crypto" (crypto book). */
-  track?: "core" | "live" | "trade" | "crypto";
+  /** Ledger: "core" (main strategy), "live" (in-play experiment), "trade" (quota-scalper book), "crypto" (crypto book) or "combo" (parlay book). */
+  track?: "core" | "live" | "trade" | "crypto" | "combo";
   now?: Date;
 }
 
@@ -130,6 +130,61 @@ export function openPaperTrade(db: Db, input: OpenPaperTradeInput): OpenPaperTra
     })
     .run();
   return { opened: true, paperTradeId: id, fill };
+}
+
+/**
+ * Open a simulated position at a KNOWN executed price, for instruments with no
+ * public order book (🧩 combos trade via RFQ). Entry = the copied wallet's own
+ * fill; shares = usd / price, so a win pays exactly `shares`. The honesty
+ * trade-off (we might not get their exact RFQ quote) is labeled in the UI.
+ */
+export function openPaperTradeAtPrice(
+  db: Db,
+  input: Omit<OpenPaperTradeInput, "book" | "usdSize"> & { usdSize: number; price: number },
+): OpenPaperTradeResult {
+  if (!(input.price > 0) || !(input.usdSize > 0)) {
+    return {
+      opened: false,
+      paperTradeId: null,
+      fill: { fillable: false, avgFillPrice: null, shares: null, spreadCost: null, reason: "invalid price/size" },
+    };
+  }
+  const now = input.now ?? new Date();
+  const id = newId();
+  const shares = input.usdSize / input.price;
+  db.insert(paperTrades)
+    .values({
+      id,
+      decisionJournalId: input.decisionJournalId,
+      walletAddress: input.walletAddress,
+      marketId: input.marketId,
+      tokenId: input.tokenId,
+      marketQuestion: input.marketQuestion,
+      outcome: input.outcome,
+      side: "BUY",
+      entryPrice: input.price,
+      currentPrice: input.price,
+      simulatedPositionSize: input.usdSize,
+      shares,
+      spreadCostPaid: null, // no public book to measure a spread against
+      unrealizedPnl: 0,
+      realizedPnl: null,
+      status: "open",
+      track: input.track ?? "core",
+      openedAt: now,
+    })
+    .run();
+  return {
+    opened: true,
+    paperTradeId: id,
+    fill: {
+      fillable: true,
+      avgFillPrice: input.price,
+      shares,
+      spreadCost: null,
+      reason: `copied at the wallet's executed price ${input.price.toFixed(4)} (no public book)`,
+    },
+  };
 }
 
 export interface PaperTradeRow {
@@ -175,6 +230,34 @@ export function closePaperTrade(
   const price = book.bestBid;
   if (exitValue === null || price === null) return null;
   const realizedPnl = exitValue - trade.simulatedPositionSize;
+  db.update(paperTrades)
+    .set({
+      status: "closed",
+      realizedPnl,
+      unrealizedPnl: null,
+      currentPrice: price,
+      closedAt: now,
+    })
+    .where(eq(paperTrades.id, trade.id))
+    .run();
+  db.insert(pnlSnapshots)
+    .values({ id: newId(), paperTradeId: trade.id, price, pnl: realizedPnl, collectedAt: now })
+    .run();
+  return { realizedPnl, exitPrice: price };
+}
+
+/**
+ * Close an open paper trade at a KNOWN exit price (🧩 combo cash-outs: the
+ * copied wallet SOLD its combo back via RFQ and we copy the exit at their
+ * executed price — there is no public bid side to walk).
+ */
+export function closePaperTradeAtPrice(
+  db: Db,
+  trade: PaperTradeRow,
+  price: number,
+  now: Date = new Date(),
+): { realizedPnl: number; exitPrice: number } {
+  const realizedPnl = trade.shares * price - trade.simulatedPositionSize;
   db.update(paperTrades)
     .set({
       status: "closed",

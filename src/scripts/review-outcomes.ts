@@ -10,6 +10,7 @@ import {
 import { fetchMarketsByConditionIds } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
 import { hypotheticalPnl } from "@/lib/benchmarks";
+import { isSyntheticComboConditionId } from "@/lib/combos";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { runScript } from "./_runner";
@@ -52,6 +53,10 @@ runScript("review:outcomes", async (db) => {
   let createdOrUpdated = 0;
 
   for (const d of decisions) {
+    // 🧩 Combo decisions live in their own ledger: their synthetic conditionIds
+    // resolve nowhere (CLOB 404s) and combo-tick settles them from the source
+    // wallet's activity. Skipping keeps core benchmarks combo-free.
+    if (isSyntheticComboConditionId(d.marketId)) continue;
     const existing = db
       .select()
       .from(outcomeReviews)

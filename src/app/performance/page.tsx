@@ -40,6 +40,7 @@ const TRACK_LABELS: Record<string, string> = {
   live: "En Vivo",
   trade: "Cuota",
   crypto: "Cripto",
+  combo: "Combos",
 };
 
 export default function PerformancePage() {

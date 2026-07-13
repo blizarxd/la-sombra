@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { paperTrades } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
@@ -13,7 +13,13 @@ import { runScript } from "./_runner";
  * whose markets have resolved.
  */
 runScript("paper:update-pnl", async (db) => {
-  const open = db.select().from(paperTrades).where(eq(paperTrades.status, "open")).all();
+  // 🧩 Combos are excluded: they have no public order book to mark against or
+  // resolve from — combo-tick.ts settles them from the source wallet's activity.
+  const open = db
+    .select()
+    .from(paperTrades)
+    .where(and(eq(paperTrades.status, "open"), ne(paperTrades.track, "combo")))
+    .all();
   if (open.length === 0) {
     log.info("no open paper trades");
     return;

@@ -121,6 +121,7 @@ async function main() {
   step("monitor-trades.ts");
   step("score-trades.ts");
   step("paper-update-pnl.ts");
+  step("combo-tick.ts"); // 🧩 combo book: copy + settle (own ledger, own settlement)
   step("review-outcomes.ts");
 
   // Sourcing bootstrap: seed each desk's wallet pool from market mining without
@@ -129,10 +130,15 @@ async function main() {
   // being permanently skipped once the other tag succeeded.
   const needCrypto = !hasSourceTag("crypto-market");
   const needFast = !hasSourceTag("fast-market");
-  if (needCrypto || needFast) {
-    log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast})`);
+  const needCombo = !hasSourceTag("combo-cup");
+  if (needCrypto || needFast || needCombo) {
+    log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast}, combo=${needCombo})`);
     if (needCrypto) step("scan-crypto-markets.ts");
     if (needFast) step("scan-fast-markets.ts");
+    if (needCombo) {
+      step("scan-combo-leaderboard.ts");
+      step("profile-combo-wallets.ts");
+    }
   }
   // Keep draining the freshly-mined queue every tick (a modest batch, gentle on
   // the API) until every sourced wallet has a profile — the desks and the trade
@@ -157,6 +163,8 @@ async function main() {
     step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
     step("scan-crypto-markets.ts"); // mine crypto-active wallets the PnL board hides
     step("scan-fast-markets.ts"); // mine scalpers from fast-resolving markets (any category)
+    step("scan-combo-leaderboard.ts"); // 🧩 mine the Combo Cup board for combo bettors
+    step("profile-combo-wallets.ts"); // 🧩 combo cashflow scorecards (eligibility gate)
     step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
     step("update-rules.ts"); // self-improve CORE strategy on core evidence
     step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)

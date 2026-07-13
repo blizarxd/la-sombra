@@ -59,6 +59,16 @@ export const walletProfiles = sqliteTable(
     // Where the wallet was discovered: comma-separated tags, e.g. "pnl-board",
     // "crypto-market". Lets us mine scalper/crypto wallets the PnL board hides.
     sources: text("sources"),
+    // 🧩 Combo (parlay) sub-profile: cashflow-honest stats over the wallet's
+    // combo activity (data-api /activity, isCombo rows). Feeds the combo book's
+    // eligibility gate. null until combo-profiled.
+    comboBoardAppearances: integer("combo_board_appearances"), // times seen on the Combo Cup board
+    comboLastBoardAt: integer("combo_last_board_at", { mode: "timestamp_ms" }),
+    comboTradeCount30d: integer("combo_trade_count_30d"),
+    comboRedeemCount30d: integer("combo_redeem_count_30d"),
+    comboNetPnl30d: real("combo_net_pnl_30d"), // redeems + cashouts - stakes
+    comboWinRate30d: real("combo_win_rate_30d"), // est.: redeems / mature buys
+    comboLastProfiledAt: integer("combo_last_profiled_at", { mode: "timestamp_ms" }),
     averageLiquidity: real("average_liquidity"),
     averageSpread: real("average_spread"),
     averageEntryTiming: real("average_entry_timing"),
@@ -202,7 +212,7 @@ export const paperTrades = sqliteTable(
     // pre-game strategy; "live" = the parallel in-play experiment; "trade" =
     // the quota-trader book (copies buy->sell round-trips of odds-scalpers).
     // The ledgers NEVER mix: every core stat filters track='core'.
-    track: text("track", { enum: ["core", "live", "trade", "crypto"] })
+    track: text("track", { enum: ["core", "live", "trade", "crypto", "combo"] })
       .notNull()
       .default("core"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
@@ -263,7 +273,7 @@ export const ruleSets = sqliteTable(
     // Independent rule lineages: "core" (main pre-game strategy), "live"
     // (the in-play experiment) and "trade" (the quota-trader book). Each
     // self-improves on its OWN evidence.
-    scope: text("scope", { enum: ["core", "live", "trade", "crypto"] }).notNull().default("core"),
+    scope: text("scope", { enum: ["core", "live", "trade", "crypto", "combo"] }).notNull().default("core"),
     version: integer("version").notNull(),
     active: integer("active", { mode: "boolean" }).notNull().default(false),
     rulesJson: text("rules_json").notNull(),
@@ -275,7 +285,7 @@ export const ruleSets = sqliteTable(
 
 export const ruleChanges = sqliteTable("rule_changes", {
   id: text("id").primaryKey(),
-  scope: text("scope", { enum: ["core", "live", "trade", "crypto"] }).notNull().default("core"),
+  scope: text("scope", { enum: ["core", "live", "trade", "crypto", "combo"] }).notNull().default("core"),
   oldRuleSetId: text("old_rule_set_id"),
   newRuleSetId: text("new_rule_set_id").notNull(),
   changedBy: text("changed_by").notNull().default("agent"),

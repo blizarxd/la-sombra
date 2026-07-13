@@ -75,6 +75,7 @@ const badgeLabels: Record<string, string> = {
   live: "en vivo",
   trade: "cuota",
   crypto: "cripto",
+  combo: "combo",
 };
 
 export function Badge({ value }: { value: string }) {
