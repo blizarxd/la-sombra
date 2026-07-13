@@ -110,8 +110,10 @@ export default function PerformancePage() {
       <Card title="Autopsia de descartes: ¿qué compuerta fuga plata?">
         {autopsy.gates.length === 0 || autopsy.reviewedSignals === 0 ? (
           <Empty>
-            Aún no hay señales descartadas con resultado conocido. La autopsia se llena cuando los mercados
-            que el filtro descartó se resuelven (vía outcome_reviews).
+            Aún no hay señales descartadas <b>con compuerta etiquetada Y resultado</b>.
+            {autopsy.labeledSignals > 0
+              ? ` Ya hay ${autopsy.labeledSignals} señales etiquetadas esperando resolución (se etiquetan desde el despliegue del feature; tardan 6-24h en resolver). La tabla se llenará conforme resuelvan.`
+              : " Se etiquetan las señales nuevas conforme el bot las descarta; la tabla se llena cuando esos mercados resuelven (vía outcome_reviews)."}
           </Empty>
         ) : (
           <>

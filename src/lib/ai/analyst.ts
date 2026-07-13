@@ -175,7 +175,16 @@ function gatherEvidence(db: Db) {
       // liquidity=minLiquidity(bajar), wallet_score=minWalletGlobalScore(bajar),
       // below_copy_threshold=paperCopyThreshold(bajar). Otros (is_sell, no_price,
       // resolve_*, exposure_dup) son estructurales, no un simple umbral.
-      skipAutopsy: { gates: autopsy.gates, reviewedSignals: autopsy.reviewedSignals },
+      // reviewedSignals = descartes CON compuerta Y resultado (muestra usable).
+      // labeledSignals = con compuerta (aunque aún sin resolver). Si labeled>0 y
+      // reviewedSignals≈0, la autopsia NO está rota: las señales etiquetadas son
+      // recientes (blocked_gate se añadió hace poco) y tardan 6-24h en resolver.
+      // No la declares inservible por eso; se poblará con el tiempo.
+      skipAutopsy: {
+        gates: autopsy.gates,
+        reviewedSignals: autopsy.reviewedSignals,
+        labeledSignals: autopsy.labeledSignals,
+      },
       rules: { version: coreRules.version, values: coreRules.rules },
     },
     live: {

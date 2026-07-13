@@ -175,7 +175,7 @@ export function getSkipAutopsy(db: Db) {
     .from(decisionJournal)
     .where(ne(decisionJournal.decision, "paper_copy"))
     .all();
-  if (decisions.length === 0) return { gates: [], reviewedSignals: 0 };
+  if (decisions.length === 0) return { gates: [], reviewedSignals: 0, labeledSignals: 0 };
 
   const reviews = db.select().from(outcomeReviews).all();
   const reviewByDecision = new Map(reviews.map((r) => [r.decisionJournalId, r]));
@@ -185,7 +185,8 @@ export function getSkipAutopsy(db: Db) {
     : [];
   const observedById = new Map(observed.map((o) => [o.id, o]));
 
-  let reviewedSignals = 0;
+  let reviewedSignals = 0; // signals that actually feed the table: gate + known outcome
+  let labeledSignals = 0; // signals carrying a gate label (regardless of outcome yet)
   const rows = decisions.map((d) => {
     const review = reviewByDecision.get(d.id);
     const obs = observedById.get(d.observedTradeId);
@@ -196,11 +197,17 @@ export function getSkipAutopsy(db: Db) {
       else if (review.finalOutcome === "lost") hypo = hypotheticalPnl(entry, 0);
       else if (review.priceAfter24h !== null) hypo = hypotheticalPnl(entry, review.priceAfter24h);
     }
-    if (hypo !== null) reviewedSignals++;
+    // Only gate-labeled signals with a known outcome are usable. Older rows
+    // (pre blocked_gate) resolve but have no gate; freshly-labeled ones have a
+    // gate but haven't resolved yet — neither counts as usable evidence.
+    if (d.blockedGate) {
+      labeledSignals++;
+      if (hypo !== null) reviewedSignals++;
+    }
     return { blockedGate: d.blockedGate, hypotheticalPnl: hypo };
   });
 
-  return { gates: computeSkipAutopsy(rows), reviewedSignals };
+  return { gates: computeSkipAutopsy(rows), reviewedSignals, labeledSignals };
 }
 
 /** Latest market snapshot per market id. */
