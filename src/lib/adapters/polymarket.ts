@@ -310,6 +310,29 @@ export async function fetchOneActiveMarket(): Promise<MarketInfo | null> {
   return toMarketInfo(data[0]);
 }
 
+/**
+ * The busiest active markets (any category), ordered by volume desc. Callers
+ * filter by endDate to find FAST-resolving markets — where scalpers who trade
+ * the odds are forced to round-trip, exactly the wallets the PnL board hides.
+ */
+export async function fetchActiveMarkets(opts?: {
+  limit?: number;
+  order?: string;
+  endDateMinIso?: string; // Gamma end_date_min — only markets resolving after this
+  endDateMaxIso?: string; // Gamma end_date_max — only markets resolving before this
+}): Promise<MarketInfo[]> {
+  const limit = Math.min(opts?.limit ?? 100, 200);
+  const order = opts?.order ?? "volumeNum";
+  let url = `${GAMMA_API()}/markets?active=true&closed=false&limit=${limit}&order=${order}&ascending=false`;
+  if (opts?.endDateMinIso) url += `&end_date_min=${encodeURIComponent(opts.endDateMinIso)}`;
+  if (opts?.endDateMaxIso) url += `&end_date_max=${encodeURIComponent(opts.endDateMaxIso)}`;
+  const data = await httpGet("polymarket-gamma-api", url);
+  if (!Array.isArray(data)) {
+    throw new AdapterError("polymarket-gamma-api", url, 200, "unexpected markets shape (not an array)");
+  }
+  return (data as any[]).map(toMarketInfo);
+}
+
 // ---------------------------------------------------------------------------
 // Order books (CLOB, public market data)
 // ---------------------------------------------------------------------------

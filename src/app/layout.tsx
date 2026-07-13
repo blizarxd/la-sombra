@@ -15,6 +15,7 @@ const nav = [
   { href: "/live", label: "⚡ En Vivo" },
   { href: "/trade", label: "🔁 Trade" },
   { href: "/cripto", label: "₿ Cripto" },
+  { href: "/cazador", label: "🎯 Cazador" },
   { href: "/journal", label: "Diario de decisiones" },
   { href: "/performance", label: "Rendimiento" },
   { href: "/rules", label: "Reglas" },

@@ -375,16 +375,16 @@ export function getTradeStats(db: Db) {
 }
 
 /**
- * Crypto observation desk: wallets discovered by mining the busiest crypto
- * markets (sourced "crypto-market"), plus their swing profile. This is the
- * research surface for "who trades crypto well" — an observation feed, not a
- * separate paper ledger; qualifying wallets flow into the existing books.
+ * Sourcing observation desk: wallets discovered by mining markets with a given
+ * source tag ("crypto-market" or "fast-market"), plus their swing profile. An
+ * observation feed, not a separate paper ledger; qualifying wallets flow into
+ * the existing books. Shared by /cripto and /cazador.
  */
-export function getCryptoDesk(db: Db) {
+export function getSourcingDesk(db: Db, sourceTag: string) {
   const wallets = db
     .select()
     .from(walletProfiles)
-    .where(like(walletProfiles.sources, "%crypto-market%"))
+    .where(like(walletProfiles.sources, `%${sourceTag}%`))
     .all();
 
   const profiled = wallets.filter((w) => w.lastScannedAt !== null);
