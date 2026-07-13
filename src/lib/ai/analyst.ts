@@ -148,7 +148,12 @@ function gatherEvidence(db: Db) {
 
   return {
     core: {
+      // totalPaperPnl = realized + unrealized (open positions marked to bid).
+      // The benchmark below is REALIZED-only, so compare realizedPnl with it —
+      // do not treat totalPaperPnl vs benchmark as an accounting discrepancy.
       totalPaperPnl: core.totalPaperPnl,
+      realizedPnl: core.realizedPnl,
+      unrealizedPnl: core.unrealizedPnl,
       winRate: core.winRate,
       resolvedCount: core.resolvedCount,
       trackedWallets: core.trackedWallets,
@@ -166,7 +171,9 @@ function gatherEvidence(db: Db) {
     live: {
       version: liveRules.version,
       rules: liveRules.rules,
-      totalPnl: live.totalPnl,
+      totalPnl: live.totalPnl, // realized + unrealized
+      realizedPnl: live.realizedPnl,
+      unrealizedPnl: live.unrealizedPnl,
       winRate: live.winRate,
       resolvedCount: live.resolvedCount,
       openCount: live.openCount,
@@ -210,6 +217,8 @@ const SYSTEM_PROMPT = `Eres el analista experto de "La Sombra", un bot de invest
 - Libro trade (quota-scalper): tercer libro separado que copia el viaje completo (compra→venta) de las billeteras que tradean la cuota con swingPnl positivo. Cierra cuando la billetera vende. Tiene su propio set de reglas y se automejora aparte.
 - Experimento en vivo (live): libro separado que copia apuestas in-play (con el juego en marcha), tamaño fijo, sin guardia de deriva — mide si copiar en vivo es rentable pese a la latencia.
 - Ambas estrategias tienen su propio set de reglas versionado que se automejora.
+
+CONTABILIDAD (importante para no marcar falsas discrepancias): totalPaperPnl/totalPnl = realizado + NO realizado (posiciones abiertas marcadas al bid, que se mueven). El benchmark botFiltered es SOLO realizado. Para comparar el libro contra el benchmark usa realizedPnl (no totalPaperPnl). Que totalPaperPnl y el benchmark difieran es NORMAL (uno incluye abiertas), no un error contable.
 
 Tu trabajo: analizar el corte de datos y devolver un juicio honesto de EXPERTO. Sé directo sobre lo que te gusta y lo que NO. Distingue señal real de ruido: con pocas resueltas (<30) casi todo es varianza — dilo claramente y sé conservador.
 
