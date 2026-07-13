@@ -3,8 +3,9 @@ import { desc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db/client";
 import { decisionJournal, paperTrades } from "@/db/schema";
 import { getFillRateStats } from "@/lib/queries";
-import { isDemo, money, parseJsonList, pct, price, shortAddr, when } from "@/lib/format";
-import { Badge, DemoTag, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
+import { isDemo, money, parseJsonList, pct } from "@/lib/format";
+import { Empty, Stat } from "../components/ui";
+import { PaginatedTradesTable, type TradeRowData } from "../components/PaginatedTradesTable";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default function PaperTradesPage() {
     .from(paperTrades)
     .where(eq(paperTrades.track, "core"))
     .orderBy(desc(paperTrades.openedAt))
-    .limit(200)
+    .limit(2000)
     .all();
   const decisions = trades.length
     ? db
@@ -27,6 +28,26 @@ export default function PaperTradesPage() {
     : [];
   const decisionById = new Map(decisions.map((d) => [d.id, d]));
   const fill = getFillRateStats(db);
+
+  const rows: TradeRowData[] = trades.map((t) => {
+    const d = decisionById.get(t.decisionJournalId);
+    const reasons = d ? parseJsonList(d.reasonsJson) : [];
+    return {
+      id: t.id,
+      openedAtMs: t.openedAt.getTime(),
+      market: t.marketQuestion ?? t.marketId,
+      outcome: t.outcome,
+      side: t.side,
+      walletAddress: t.walletAddress,
+      size: t.simulatedPositionSize,
+      entryPrice: t.entryPrice,
+      currentPrice: t.currentPrice,
+      pnl: t.status !== "open" ? t.realizedPnl : t.unrealizedPnl,
+      status: t.status,
+      reason: reasons[0] ?? "—",
+      demo: isDemo(t.marketQuestion),
+    };
+  });
 
   const realized = trades.filter((t) => t.status !== "open").reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
   const unrealized = trades.filter((t) => t.status === "open").reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
@@ -52,49 +73,10 @@ export default function PaperTradesPage() {
       {trades.length === 0 ? (
         <Empty>Aún no hay trades en papel. Los crea <code className="text-accent">npm run score:trades</code> cuando una señal supera el umbral de copia.</Empty>
       ) : (
-        <Table>
-          <thead>
-            <tr>
-              <Th>Abierto</Th>
-              <Th>Mercado</Th>
-              <Th>Billetera</Th>
-              <Th className="text-right">Tamaño</Th>
-              <Th className="text-right">Entrada</Th>
-              <Th className="text-right">Actual</Th>
-              <Th className="text-right">PnL</Th>
-              <Th>Estado</Th>
-              <Th>Motivo de entrada</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {trades.map((t) => {
-              const d = decisionById.get(t.decisionJournalId);
-              const pnl = t.status !== "open" ? t.realizedPnl : t.unrealizedPnl;
-              const reasons = d ? parseJsonList(d.reasonsJson) : [];
-              return (
-                <tr key={t.id}>
-                  <Td className="whitespace-nowrap text-mist">{when(t.openedAt)}</Td>
-                  <Td className="max-w-80">
-                    {t.marketQuestion ?? t.marketId}
-                    {isDemo(t.marketQuestion) ? <span className="ml-1"><DemoTag /></span> : null}
-                    <div className="text-[11px] text-mist">{t.outcome ?? ""} · {t.side}</div>
-                  </Td>
-                  <Td>
-                    <Link href={`/wallets/${t.walletAddress}`} className="text-accent hover:underline">
-                      {shortAddr(t.walletAddress)}
-                    </Link>
-                  </Td>
-                  <Td className="text-right">{money(t.simulatedPositionSize)}</Td>
-                  <Td className="text-right">{price(t.entryPrice)}</Td>
-                  <Td className="text-right">{price(t.currentPrice)}</Td>
-                  <Td className="text-right font-semibold"><PnlText value={pnl} /></Td>
-                  <Td><Badge value={t.status} /></Td>
-                  <Td className="max-w-72 text-xs text-mist">{reasons[0] ?? "—"}</Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </Table>
+        <PaginatedTradesTable
+          rows={rows}
+          columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status", "reason"]}
+        />
       )}
     </div>
   );

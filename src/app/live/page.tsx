@@ -3,8 +3,9 @@ import { getDb } from "@/db/client";
 import { getControlSettings } from "@/lib/control";
 import { getLiveStats, getPnlSeries, getRealizedPnlSeries, getWalletPaperPerformance } from "@/lib/queries";
 import { money, pct, price, score, shortAddr, when } from "@/lib/format";
-import { Badge, Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
+import { Badge, Card, Empty, PnlText, Stat } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
+import { PaginatedTradesTable, type TradeRowData } from "../components/PaginatedTradesTable";
 import { updateLiveControls } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,20 @@ export default function LivePage() {
   const realizedSeries = getRealizedPnlSeries(db, "live");
   const byWallet = getWalletPaperPerformance(db, "live").sort((a, b) => b.totalPnl - a.totalPnl);
   const pnlTone = live.totalPnl > 0 ? "profit" : live.totalPnl < 0 ? "loss" : "neutral";
+
+  const liveRows: TradeRowData[] = live.trades.map((t) => ({
+    id: t.id,
+    openedAtMs: t.openedAt.getTime(),
+    market: t.marketQuestion ?? t.marketId,
+    outcome: t.outcome,
+    side: t.side,
+    walletAddress: t.walletAddress,
+    size: t.simulatedPositionSize,
+    entryPrice: t.entryPrice,
+    currentPrice: t.currentPrice,
+    pnl: t.status !== "open" ? t.realizedPnl : t.unrealizedPnl,
+    status: t.status,
+  }));
 
   return (
     <div className="space-y-4">
@@ -95,51 +110,11 @@ export default function LivePage() {
       </Card>
 
       <Card title={`Copias en vivo (${live.trades.length})`}>
-        {live.trades.length === 0 ? (
-          <Empty>
-            Aún no hay copias en vivo. Se abren solas cuando una billetera seguida de calidad apuesta con el
-            juego en marcha y el mercado pasa banda de precio, spread y liquidez.
-          </Empty>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Abierta</Th>
-                <Th>Mercado</Th>
-                <Th>Billetera</Th>
-                <Th className="text-right">Tamaño</Th>
-                <Th className="text-right">Entrada</Th>
-                <Th className="text-right">Actual</Th>
-                <Th className="text-right">PnL</Th>
-                <Th>Estado</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {live.trades.map((t) => {
-                const pnl = t.status !== "open" ? t.realizedPnl : t.unrealizedPnl;
-                return (
-                  <tr key={t.id}>
-                    <Td className="whitespace-nowrap text-mist">{when(t.openedAt)}</Td>
-                    <Td className="max-w-80">
-                      {t.marketQuestion ?? t.marketId}
-                      <div className="text-[11px] text-mist">{t.outcome ?? ""} · {t.side}</div>
-                    </Td>
-                    <Td>
-                      <Link href={`/wallets/${t.walletAddress}`} className="text-accent hover:underline">
-                        {shortAddr(t.walletAddress)}
-                      </Link>
-                    </Td>
-                    <Td className="text-right">{money(t.simulatedPositionSize)}</Td>
-                    <Td className="text-right">{price(t.entryPrice)}</Td>
-                    <Td className="text-right">{price(t.currentPrice)}</Td>
-                    <Td className="text-right font-semibold"><PnlText value={pnl} /></Td>
-                    <Td><Badge value={t.status} /></Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-        )}
+        <PaginatedTradesTable
+          rows={liveRows}
+          columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status"]}
+          emptyHint="Aún no hay copias en vivo. Se abren solas cuando una billetera seguida de calidad apuesta con el juego en marcha y el mercado pasa banda de precio, spread y liquidez."
+        />
       </Card>
 
       <Card title="Rendimiento por billetera (libro en vivo)">

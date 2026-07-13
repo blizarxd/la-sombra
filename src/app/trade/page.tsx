@@ -2,8 +2,9 @@ import Link from "next/link";
 import { getDb } from "@/db/client";
 import { getPnlSeries, getRealizedPnlSeries, getTradeStats, getWalletPaperPerformance } from "@/lib/queries";
 import { money, pct, price, shortAddr, when } from "@/lib/format";
-import { Badge, Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
+import { Badge, Card, Empty, PnlText, Stat } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
+import { PaginatedTradesTable, type TradeRowData } from "../components/PaginatedTradesTable";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,20 @@ export default function TradePage() {
   const realizedSeries = getRealizedPnlSeries(db, "trade");
   const byWallet = getWalletPaperPerformance(db, "trade").sort((a, b) => b.totalPnl - a.totalPnl);
   const pnlTone = trade.totalPnl > 0 ? "profit" : trade.totalPnl < 0 ? "loss" : "neutral";
+
+  const tradeRows: TradeRowData[] = trade.trades.map((t) => ({
+    id: t.id,
+    openedAtMs: t.openedAt.getTime(),
+    market: t.marketQuestion ?? t.marketId,
+    outcome: t.outcome,
+    side: t.side,
+    walletAddress: t.walletAddress,
+    size: t.simulatedPositionSize,
+    entryPrice: t.entryPrice,
+    currentPrice: t.currentPrice,
+    pnl: t.status !== "open" ? t.realizedPnl : t.unrealizedPnl,
+    status: t.status,
+  }));
 
   return (
     <div className="space-y-4">
@@ -53,51 +68,11 @@ export default function TradePage() {
       </Card>
 
       <Card title={`Copias de cuota (${trade.trades.length})`}>
-        {trade.trades.length === 0 ? (
-          <Empty>
-            Aún no hay copias de cuota. El libro abre cuando una billetera perfilada como «tradea cuota» con swing
-            rentable compra. Se llena a medida que el perfilado (cada 12h) clasifica billeteras — sin datos falsos.
-          </Empty>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Abierta</Th>
-                <Th>Mercado</Th>
-                <Th>Billetera</Th>
-                <Th className="text-right">Tamaño</Th>
-                <Th className="text-right">Entrada</Th>
-                <Th className="text-right">Actual</Th>
-                <Th className="text-right">PnL</Th>
-                <Th>Estado</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {trade.trades.map((t) => {
-                const pnl = t.status !== "open" ? t.realizedPnl : t.unrealizedPnl;
-                return (
-                  <tr key={t.id}>
-                    <Td className="whitespace-nowrap text-mist">{when(t.openedAt)}</Td>
-                    <Td className="max-w-80">
-                      {t.marketQuestion ?? t.marketId}
-                      <div className="text-[11px] text-mist">{t.outcome ?? ""} · {t.side}</div>
-                    </Td>
-                    <Td>
-                      <Link href={`/wallets/${t.walletAddress}`} className="text-accent hover:underline">
-                        {shortAddr(t.walletAddress)}
-                      </Link>
-                    </Td>
-                    <Td className="text-right">{money(t.simulatedPositionSize)}</Td>
-                    <Td className="text-right">{price(t.entryPrice)}</Td>
-                    <Td className="text-right">{price(t.currentPrice)}</Td>
-                    <Td className="text-right font-semibold"><PnlText value={pnl} /></Td>
-                    <Td><Badge value={t.status} /></Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-        )}
+        <PaginatedTradesTable
+          rows={tradeRows}
+          columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status"]}
+          emptyHint="Aún no hay copias de cuota. El libro abre cuando una billetera perfilada como «tradea cuota» con swing rentable compra. Se llena a medida que el perfilado (cada 12h) clasifica billeteras — sin datos falsos."
+        />
       </Card>
 
       <Card title="Rendimiento por billetera (libro trade)">

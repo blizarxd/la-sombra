@@ -8,8 +8,9 @@ import {
   getWalletPaperPerformance,
 } from "@/lib/queries";
 import { money, pct, price, shortAddr, when } from "@/lib/format";
-import { Badge, Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
+import { Card, Empty, PnlText, Stat } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
+import { PaginatedTradesTable, type TradeRowData } from "../components/PaginatedTradesTable";
 import { SourcingDesk } from "../components/SourcingDesk";
 
 export const dynamic = "force-dynamic";
@@ -22,6 +23,20 @@ export default function CriptoPage() {
   const byWallet = getWalletPaperPerformance(db, "crypto").sort((a, b) => b.totalPnl - a.totalPnl);
   const desk = getSourcingDesk(db, "crypto-market");
   const pnlTone = crypto.totalPnl > 0 ? "profit" : crypto.totalPnl < 0 ? "loss" : "neutral";
+
+  const cryptoRows: TradeRowData[] = crypto.trades.map((t) => ({
+    id: t.id,
+    openedAtMs: t.openedAt.getTime(),
+    market: t.marketQuestion ?? t.marketId,
+    outcome: t.outcome,
+    side: t.side,
+    walletAddress: t.walletAddress,
+    size: t.simulatedPositionSize,
+    entryPrice: t.entryPrice,
+    currentPrice: t.currentPrice,
+    pnl: t.status !== "open" ? t.realizedPnl : t.unrealizedPnl,
+    status: t.status,
+  }));
 
   return (
     <div className="space-y-4">
@@ -60,51 +75,11 @@ export default function CriptoPage() {
       </Card>
 
       <Card title={`Copias cripto (${crypto.trades.length})`}>
-        {crypto.trades.length === 0 ? (
-          <Empty>
-            Aún no hay copias cripto. El libro abre cuando una billetera minada de cripto compra dentro de la banda
-            55–75¢. Se llena a medida que el sourcing + perfilado clasifican billeteras — sin datos falsos.
-          </Empty>
-        ) : (
-          <Table>
-            <thead>
-              <tr>
-                <Th>Abierta</Th>
-                <Th>Mercado</Th>
-                <Th>Billetera</Th>
-                <Th className="text-right">Tamaño</Th>
-                <Th className="text-right">Entrada</Th>
-                <Th className="text-right">Actual</Th>
-                <Th className="text-right">PnL</Th>
-                <Th>Estado</Th>
-              </tr>
-            </thead>
-            <tbody>
-              {crypto.trades.map((t) => {
-                const pnl = t.status !== "open" ? t.realizedPnl : t.unrealizedPnl;
-                return (
-                  <tr key={t.id}>
-                    <Td className="whitespace-nowrap text-mist">{when(t.openedAt)}</Td>
-                    <Td className="max-w-80">
-                      {t.marketQuestion ?? t.marketId}
-                      <div className="text-[11px] text-mist">{t.outcome ?? ""} · {t.side}</div>
-                    </Td>
-                    <Td>
-                      <Link href={`/wallets/${t.walletAddress}`} className="text-accent hover:underline">
-                        {shortAddr(t.walletAddress)}
-                      </Link>
-                    </Td>
-                    <Td className="text-right">{money(t.simulatedPositionSize)}</Td>
-                    <Td className="text-right">{price(t.entryPrice)}</Td>
-                    <Td className="text-right">{price(t.currentPrice)}</Td>
-                    <Td className="text-right font-semibold"><PnlText value={pnl} /></Td>
-                    <Td><Badge value={t.status} /></Td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </Table>
-        )}
+        <PaginatedTradesTable
+          rows={cryptoRows}
+          columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status"]}
+          emptyHint="Aún no hay copias cripto. El libro abre cuando una billetera minada de cripto compra dentro de la banda 55–75¢. Se llena a medida que el sourcing + perfilado clasifican billeteras — sin datos falsos."
+        />
       </Card>
 
       <Card title="Rendimiento por billetera (libro cripto)">
