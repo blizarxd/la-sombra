@@ -1,4 +1,4 @@
-import { asc, eq, isNull, or, lt, and, isNotNull } from "drizzle-orm";
+import { asc, eq, isNull, or, lt, and, isNotNull, sql } from "drizzle-orm";
 import { walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchWalletTrades, isRealAddress } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
@@ -19,6 +19,11 @@ runScript("scan:wallets", async (db) => {
   const { rules } = getActiveRules(db);
   const staleBefore = new Date(Date.now() - 12 * 3600 * 1000);
 
+  // NEVER-profiled wallets first (fresh discoveries — e.g. market-mined ones
+  // with synthetic ranks 9000+), then stale ones by rank. Ordering by rank
+  // alone starved the mined wallets forever: the top-500 leaderboard goes
+  // stale every 12h and always outranked them, so the crypto/cazador desks
+  // never got profiled and the trade book never gained quota wallets.
   const candidates = db
     .select()
     .from(walletProfiles)
@@ -28,7 +33,13 @@ runScript("scan:wallets", async (db) => {
         or(isNull(walletProfiles.lastScannedAt), lt(walletProfiles.lastScannedAt, staleBefore)),
       ),
     )
-    .orderBy(asc(walletProfiles.sourceRank))
+    .orderBy(
+      sql`CASE
+        WHEN ${walletProfiles.lastScannedAt} IS NULL AND ${walletProfiles.sources} IS NOT NULL THEN 0
+        WHEN ${walletProfiles.lastScannedAt} IS NULL THEN 1
+        ELSE 2 END`,
+      asc(walletProfiles.sourceRank),
+    )
     .limit(batch)
     .all();
 

@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { isNotNull, like } from "drizzle-orm";
+import { and, isNotNull, isNull, like } from "drizzle-orm";
 import { getDb, getDbPath } from "../db/client";
 import { walletProfiles } from "../db/schema";
 import { log } from "../lib/logger";
@@ -74,6 +74,21 @@ function hasSourceTag(tag: string): boolean {
   }
 }
 
+/** True while any market-mined wallet is still waiting to be profiled. */
+function hasUnprofiledSourced(): boolean {
+  try {
+    const rows = getDb()
+      .select({ id: walletProfiles.id })
+      .from(walletProfiles)
+      .where(and(isNotNull(walletProfiles.sources), isNull(walletProfiles.lastScannedAt)))
+      .limit(1)
+      .all();
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function step(scriptFile: string, args: string[] = []): void {
   const full = path.join(scriptsDir, scriptFile);
   try {
@@ -110,7 +125,12 @@ async function main() {
     log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast})`);
     if (needCrypto) step("scan-crypto-markets.ts");
     if (needFast) step("scan-fast-markets.ts");
-    step("scan-wallets.ts", ["--limit", "30"]); // profile a batch (reaches sourced wallets)
+  }
+  // Keep draining the freshly-mined queue every tick (a modest batch, gentle on
+  // the API) until every sourced wallet has a profile — the desks and the trade
+  // book depend on those profiles, and waiting for the daily cycle starved them.
+  if (needCrypto || needFast || hasUnprofiledSourced()) {
+    step("scan-wallets.ts", ["--limit", "30"]);
   }
 
   // --- Daily cycle: once per calendar day, or immediately if the real-wallet

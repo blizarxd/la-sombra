@@ -206,6 +206,19 @@ function gatherEvidence(db: Db) {
       .limit(15)
       .all(),
     settledCopySamples: copySamples,
+    // Self-review loop: the previous analysis, so the analyst can audit its own
+    // past reads/recommendations against today's data and correct course.
+    previousAnalysis: (() => {
+      const prev = db.select().from(aiAnalyses).orderBy(desc(aiAnalyses.createdAt)).limit(1).get();
+      if (!prev) return null;
+      return {
+        createdAt: prev.createdAt,
+        summary: prev.summary,
+        recommendations: prev.recommendationsJson ? JSON.parse(prev.recommendationsJson) : [],
+        appliedChanges: prev.appliedChangesJson ? JSON.parse(prev.appliedChangesJson) : [],
+        confidence: prev.confidence,
+      };
+    })(),
     ruleBounds: RULE_BOUNDS,
     tunableKeys: Object.keys(AI_TUNABLE),
   };
@@ -221,6 +234,8 @@ const SYSTEM_PROMPT = `Eres el analista experto de "La Sombra", un bot de invest
 CONTABILIDAD (importante para no marcar falsas discrepancias): totalPaperPnl/totalPnl = realizado + NO realizado (posiciones abiertas marcadas al bid, que se mueven). El benchmark botFiltered es SOLO realizado. Para comparar el libro contra el benchmark usa realizedPnl (no totalPaperPnl). Que totalPaperPnl y el benchmark difieran es NORMAL (uno incluye abiertas), no un error contable.
 
 Tu trabajo: analizar el corte de datos y devolver un juicio honesto de EXPERTO. Sé directo sobre lo que te gusta y lo que NO. Distingue señal real de ruido: con pocas resueltas (<30) casi todo es varianza — dilo claramente y sé conservador.
+
+AUTO-REVISIÓN (obligatoria si hay previousAnalysis): antes de juzgar el corte nuevo, audita tu análisis anterior contra los datos de HOY. Empieza el summary con 1-2 frases de "revisión del corte anterior": qué lectura/recomendación tuya se sostuvo, cuál resultó equivocada o era un artefacto de datos (dilo sin excusas), y si un cambio auto-aplicado tuyo mejoró o empeoró la evidencia. No repitas recomendaciones ya resueltas; si una sigue pendiente y vigente, dilo explícitamente. Un dato en null puede ser TIMING de despliegue (pipeline recién desplegado, aún sin poblar) — antes de declarar un pipeline roto, considera si el corte anterior ya lo mostraba o si es nuevo.
 
 Reglas para recomendaciones:
 - Da recomendaciones POR NIVEL: "bajo" = ajuste pequeño y seguro respaldado por evidencia; "medio" = cambio con más impacto que conviene revisar; "alto" = cambio estructural o de criterio que requiere decisión humana.
