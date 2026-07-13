@@ -46,6 +46,26 @@ export function when(d: Date | number | null | undefined): string {
   });
 }
 
+/** Calendar day (YYYY-MM-DD) of a timestamp in the project timezone (UTC-4). */
+export function dayKeyTz(d: Date | number): string {
+  const date = typeof d === "number" ? new Date(d) : d;
+  // en-CA renders as YYYY-MM-DD; timeZone pins it to UTC-4 (Johan's clock).
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: APP_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+/** Short human label (e.g. "13 jul") for a YYYY-MM-DD day key, in Spanish. */
+export function dayLabel(dayKey: string): string {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const months = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+  if (!y || !m || !d) return dayKey;
+  return `${d} ${months[m - 1] ?? ""}`;
+}
+
 export function hoursLeft(h: number | null | undefined): string {
   if (h === null || h === undefined || Number.isNaN(h)) return "—";
   if (h < 0) return "past due";

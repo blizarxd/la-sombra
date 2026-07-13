@@ -19,6 +19,7 @@ import {
   hypotheticalPnl,
   type DecisionOutcomeRow,
 } from "./benchmarks";
+import { dayKeyTz } from "./format";
 
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
@@ -594,6 +595,74 @@ export function getSourcingDesk(db: Db, sourceTag: string) {
     trades: trades.slice(0, 40),
     byWallet: byWallet.slice(0, 15),
   };
+}
+
+/**
+ * Daily REALIZED PnL per book (core/live/trade/crypto). The honest "how much did
+ * the system generate each day" scorecard: buckets every settled paper trade by
+ * its settle day (in the project timezone, UTC-4) and its ledger. Realized only
+ * — open positions' mark-to-market isn't money generated yet. Newest day first.
+ */
+export function getDailyPnlByBook(db: Db) {
+  const tracks = ["core", "live", "trade", "crypto"] as const;
+  const settled = db
+    .select({
+      track: paperTrades.track,
+      realizedPnl: paperTrades.realizedPnl,
+      resolvedAt: paperTrades.resolvedAt,
+      closedAt: paperTrades.closedAt,
+    })
+    .from(paperTrades)
+    .where(ne(paperTrades.status, "open"))
+    .all();
+
+  type Cell = { pnl: number; count: number };
+  const byDay = new Map<string, Record<string, Cell>>();
+  for (const t of settled) {
+    const settleAt = t.resolvedAt ?? t.closedAt;
+    if (!settleAt) continue;
+    const day = dayKeyTz(settleAt);
+    const row = byDay.get(day) ?? {};
+    const cell = row[t.track] ?? { pnl: 0, count: 0 };
+    cell.pnl += t.realizedPnl ?? 0;
+    cell.count += 1;
+    row[t.track] = cell;
+    byDay.set(day, row);
+  }
+
+  const round = (x: number) => Math.round(x * 100) / 100;
+  const days = [...byDay.entries()]
+    .sort((a, b) => (a[0] < b[0] ? 1 : -1)) // newest first
+    .map(([day, row]) => {
+      const byTrack: Record<string, Cell> = {};
+      let total = 0;
+      let totalCount = 0;
+      for (const tr of tracks) {
+        const c = row[tr] ?? { pnl: 0, count: 0 };
+        byTrack[tr] = { pnl: round(c.pnl), count: c.count };
+        total += c.pnl;
+        totalCount += c.count;
+      }
+      return { day, byTrack, total: round(total), totalCount };
+    });
+
+  // Per-book totals across all days (footer row).
+  const totals: Record<string, Cell> = {};
+  let grand = 0;
+  let grandCount = 0;
+  for (const tr of tracks) {
+    let pnl = 0;
+    let count = 0;
+    for (const d of days) {
+      pnl += d.byTrack[tr].pnl;
+      count += d.byTrack[tr].count;
+    }
+    totals[tr] = { pnl: round(pnl), count };
+    grand += pnl;
+    grandCount += count;
+  }
+
+  return { tracks: [...tracks], days, totals, grandTotal: round(grand), grandCount };
 }
 
 /** Recent AI analyst runs (expert reads + recommendations), newest first. */

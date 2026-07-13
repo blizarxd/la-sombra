@@ -2,6 +2,7 @@ import { getDb } from "@/db/client";
 import {
   getBenchmarkSummary,
   getCategoryPerformance,
+  getDailyPnlByBook,
   getFillRateStats,
   getInPlayPaperPerformance,
   getPnlSeries,
@@ -9,7 +10,7 @@ import {
   getSkipAutopsy,
   getWalletPaperPerformance,
 } from "@/lib/queries";
-import { money, pct, shortAddr } from "@/lib/format";
+import { dayLabel, money, pct, shortAddr } from "@/lib/format";
 import Link from "next/link";
 import { Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
@@ -33,9 +34,17 @@ const GATE_INFO: Record<string, { label: string; lever: string }> = {
   no_price: { label: "Sin precio en el libro", lever: "estructural" },
 };
 
+const TRACK_LABELS: Record<string, string> = {
+  core: "Pre-partido",
+  live: "En Vivo",
+  trade: "Cuota",
+  crypto: "Cripto",
+};
+
 export default function PerformancePage() {
   const db = getDb();
   const autopsy = getSkipAutopsy(db);
+  const daily = getDailyPnlByBook(db);
   const series = getPnlSeries(db);
   const realizedSeries = getRealizedPnlSeries(db);
   const bench = getBenchmarkSummary(db);
@@ -203,6 +212,66 @@ export default function PerformancePage() {
               Libros separados que nunca se mezclan: el experimento en vivo copia in-play con $5 fijos y sin guardia
               de deriva (eso es lo que mide); la estrategia principal sigue intacta con todas sus reglas. Detalle del
               experimento en la página ⚡ En Vivo.
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Card title="PnL realizado por día y por libro (cuánto genera el sistema cada día)">
+        {daily.days.length === 0 ? (
+          <Empty>Aún no hay trades liquidados para desglosar por día.</Empty>
+        ) : (
+          <>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Día (UTC-4)</Th>
+                  {daily.tracks.map((tr) => (
+                    <Th key={tr} className="text-right">{TRACK_LABELS[tr] ?? tr}</Th>
+                  ))}
+                  <Th className="text-right">Total día</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {daily.days.map((d) => (
+                  <tr key={d.day}>
+                    <Td className="whitespace-nowrap font-medium">{dayLabel(d.day)}</Td>
+                    {daily.tracks.map((tr) => {
+                      const c = d.byTrack[tr];
+                      return (
+                        <Td key={tr} className="text-right">
+                          {c.count === 0 ? (
+                            <span className="text-mist">—</span>
+                          ) : (
+                            <>
+                              <PnlText value={c.pnl} />
+                              <span className="ml-1 text-[10px] text-mist">({c.count})</span>
+                            </>
+                          )}
+                        </Td>
+                      );
+                    })}
+                    <Td className="text-right font-semibold"><PnlText value={d.total} /></Td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-edge">
+                  <Td className="font-semibold uppercase tracking-wider text-mist">Total</Td>
+                  {daily.tracks.map((tr) => (
+                    <Td key={tr} className="text-right font-semibold">
+                      <PnlText value={daily.totals[tr].pnl} />
+                      <span className="ml-1 text-[10px] text-mist">({daily.totals[tr].count})</span>
+                    </Td>
+                  ))}
+                  <Td className="text-right font-bold"><PnlText value={daily.grandTotal} /></Td>
+                </tr>
+              </tfoot>
+            </Table>
+            <div className="mt-3 text-xs text-mist">
+              PnL <b>realizado</b> (trades liquidados o cerrados por venta copiada) del día en que se liquidaron, en
+              UTC-4. El número entre paréntesis es cuántos trades se liquidaron. Las posiciones abiertas no cuentan
+              hasta que se resuelven — esto es dinero (en papel) ya generado, no valor de mercado.
             </div>
           </>
         )}
