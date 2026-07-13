@@ -48,6 +48,9 @@ const badgeTones: Record<string, string> = {
   holdea: "bg-slate-800 text-mist border-slate-700",
   mixto: "bg-sky-950 text-accent border-sky-800",
   tradea_cuota: "bg-violet-950 text-violet-300 border-violet-800",
+  core: "bg-slate-800 text-bright border-slate-600",
+  live: "bg-amber-950 text-watch border-amber-800",
+  trade: "bg-violet-950 text-violet-300 border-violet-800",
 };
 
 const badgeLabels: Record<string, string> = {
@@ -67,6 +70,9 @@ const badgeLabels: Record<string, string> = {
   holdea: "holdea",
   mixto: "mixto",
   tradea_cuota: "tradea cuota",
+  core: "pre-partido",
+  live: "en vivo",
+  trade: "cuota",
 };
 
 export function Badge({ value }: { value: string }) {

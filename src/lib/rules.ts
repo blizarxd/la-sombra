@@ -30,6 +30,11 @@ export interface Rules {
   // --- sizing ---
   minPositionSize: number; // USD
   maxPositionSize: number; // USD
+  // --- risk overlay ---
+  // Paper stop-loss: close an open position early once its mark-to-bid value
+  // has dropped this fraction of cost (e.g. 0.5 = down 50%). Cuts the fat-tail
+  // losers on expensive favorites. Optional; undefined/0 = disabled.
+  stopLossPct?: number;
   // --- trade score weights (must sum to ~1) ---
   tradeWeights: {
     walletQuality: number;
@@ -66,6 +71,7 @@ export const DEFAULT_RULES: Rules = {
   watchlistThreshold: 45,
   minPositionSize: 5,
   maxPositionSize: 20,
+  stopLossPct: 0.5,
   tradeWeights: {
     walletQuality: 0.2,
     roi: 0.08,
@@ -97,7 +103,11 @@ export const RULE_BOUNDS: Record<string, { min: number; max: number }> = {
   oneHitWonderShareThreshold: { min: 0.3, max: 0.8 },
   paperCopyThreshold: { min: 50, max: 85 },
   watchlistThreshold: { min: 30, max: 60 },
+  stopLossPct: { min: 0.3, max: 0.9 },
 };
+
+/** Fallback stop-loss for rule sets seeded before stopLossPct existed. */
+export const DEFAULT_STOP_LOSS_PCT = 0.5;
 
 export function clampRuleValue(key: string, value: number): number {
   const bounds = RULE_BOUNDS[key];

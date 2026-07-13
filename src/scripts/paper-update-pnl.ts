@@ -3,7 +3,8 @@ import { paperTrades } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook } from "@/lib/adapters";
 import type { MarketInfo } from "@/lib/adapters/types";
 import { log } from "@/lib/logger";
-import { markPaperTrade, resolvePaperTrade } from "@/lib/paper/engine";
+import { closePaperTrade, markPaperTrade, markToBid, resolvePaperTrade, shouldStopLoss } from "@/lib/paper/engine";
+import { DEFAULT_STOP_LOSS_PCT, getActiveRules } from "@/lib/rules";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
 import { runScript } from "./_runner";
 
@@ -20,9 +21,13 @@ runScript("paper:update-pnl", async (db) => {
   }
   log.info(`updating ${open.length} open paper trades`);
 
+  const { rules: coreRules } = getActiveRules(db, "core");
+  const stopPct = coreRules.stopLossPct ?? DEFAULT_STOP_LOSS_PCT;
+
   const marketCache = new Map<string, MarketInfo>();
   let marked = 0;
   let resolved = 0;
+  let stopped = 0;
 
   for (const trade of open) {
     // 1) resolution check via gamma
@@ -65,6 +70,29 @@ runScript("paper:update-pnl", async (db) => {
     }
     try {
       const book = await fetchOrderBook(trade.tokenId);
+      // Paper stop-loss (core only): if the position has bled past the stop,
+      // close it early at the bid instead of riding it to a bigger loss. The
+      // live/trade books close on the copied wallet's own exit, so leave them.
+      const markValue = markToBid(book.bids, trade.shares);
+      if (
+        trade.track === "core" &&
+        markValue !== null &&
+        shouldStopLoss(trade.simulatedPositionSize, markValue, stopPct)
+      ) {
+        const closed = closePaperTrade(db, trade, book);
+        if (closed) {
+          stopped++;
+          log.info(`stop-loss ${trade.id.slice(0, 8)}… closed at ${(closed.exitPrice * 100).toFixed(1)}¢ pnl $${closed.realizedPnl.toFixed(2)}`);
+          if (telegramConfigured()) {
+            const q = escapeHtml((trade.marketQuestion ?? trade.marketId).slice(0, 120));
+            await sendTelegramMessage(
+              `🛑 <b>STOP-LOSS (PAPEL)</b> — corte de pérdida\n${q}\n` +
+                `Cerrado a ${(closed.exitPrice * 100).toFixed(1)}¢ · PnL $${closed.realizedPnl.toFixed(2)} (cayó ≥${(stopPct * 100).toFixed(0)}%)`,
+            );
+          }
+          continue;
+        }
+      }
       const mark = markPaperTrade(db, trade, book);
       if (mark) {
         marked++;
@@ -75,5 +103,5 @@ runScript("paper:update-pnl", async (db) => {
       log.warn(`book fetch failed for ${trade.id.slice(0, 8)}…: ${err instanceof Error ? err.message : err}`);
     }
   }
-  log.info(`marked ${marked}, resolved ${resolved}`);
+  log.info(`marked ${marked}, resolved ${resolved}, stop-loss ${stopped}`);
 });
