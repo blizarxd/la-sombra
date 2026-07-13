@@ -51,6 +51,7 @@ const badgeTones: Record<string, string> = {
   core: "bg-slate-800 text-bright border-slate-600",
   live: "bg-amber-950 text-watch border-amber-800",
   trade: "bg-violet-950 text-violet-300 border-violet-800",
+  crypto: "bg-orange-950 text-orange-300 border-orange-800",
 };
 
 const badgeLabels: Record<string, string> = {
@@ -73,6 +74,7 @@ const badgeLabels: Record<string, string> = {
   core: "pre-partido",
   live: "en vivo",
   trade: "cuota",
+  crypto: "cripto",
 };
 
 export function Badge({ value }: { value: string }) {

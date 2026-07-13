@@ -6,6 +6,7 @@ import {
   getInPlayPaperPerformance,
   getPnlSeries,
   getRealizedPnlSeries,
+  getSkipAutopsy,
   getWalletPaperPerformance,
 } from "@/lib/queries";
 import { money, pct, shortAddr } from "@/lib/format";
@@ -15,8 +16,26 @@ import { PnlChart } from "../components/PnlChart";
 
 export const dynamic = "force-dynamic";
 
+// Human-readable label + the rule lever each gate maps to (for the autopsy).
+const GATE_INFO: Record<string, { label: string; lever: string }> = {
+  entry_above_max: { label: "Precio sobre la banda", lever: "subir maxEntryPrice" },
+  entry_below_min: { label: "Precio bajo la banda", lever: "bajar minEntryPrice" },
+  drift: { label: "Entrada tardía (deriva)", lever: "subir maxPriceDrift" },
+  spread: { label: "Spread ancho", lever: "subir maxSpread" },
+  liquidity: { label: "Liquidez fina", lever: "bajar minLiquidity" },
+  resolve_too_soon: { label: "Resuelve muy pronto", lever: "bajar minTime (estructural)" },
+  resolve_too_far: { label: "Resuelve muy lejos", lever: "estructural" },
+  wallet_score: { label: "Score de billetera bajo", lever: "bajar minWalletGlobalScore" },
+  is_sell: { label: "Señal de venta (salida)", lever: "estructural" },
+  below_copy_threshold: { label: "En banda de vigilancia", lever: "bajar paperCopyThreshold" },
+  low_score: { label: "Score de copia bajo", lever: "bajar watchlistThreshold" },
+  exposure_dup: { label: "Ya hay posición abierta", lever: "estructural (anti-duplicado)" },
+  no_price: { label: "Sin precio en el libro", lever: "estructural" },
+};
+
 export default function PerformancePage() {
   const db = getDb();
+  const autopsy = getSkipAutopsy(db);
   const series = getPnlSeries(db);
   const realizedSeries = getRealizedPnlSeries(db);
   const bench = getBenchmarkSummary(db);
@@ -87,6 +106,61 @@ export default function PerformancePage() {
         <Stat label="Buenos descartes" value={String(bench.goodSkips)} tone="profit" />
         <Stat label="Tasa de llenado" value={pct(fill.fillRate)} hint={`${fill.unfillable} intentos de copia sin llenar`} />
       </div>
+
+      <Card title="Autopsia de descartes: ¿qué compuerta fuga plata?">
+        {autopsy.gates.length === 0 || autopsy.reviewedSignals === 0 ? (
+          <Empty>
+            Aún no hay señales descartadas con resultado conocido. La autopsia se llena cuando los mercados
+            que el filtro descartó se resuelven (vía outcome_reviews).
+          </Empty>
+        ) : (
+          <>
+            <div className="mb-3 text-xs text-mist">
+              Para cada señal que el bot NO copió, comparamos lo que habría ganado ($10 hipotéticos hasta su
+              resultado). <span className="text-loss font-semibold">Fuga neta &gt; 0</span> = esa compuerta bloqueó
+              más ganancia que pérdida: candidata a aflojar. <span className="text-profit font-semibold">&lt; 0</span> =
+              está haciendo bien su trabajo. Basado en {autopsy.reviewedSignals} señales con resultado.
+            </div>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Compuerta</Th>
+                  <Th className="text-right">Bloqueadas</Th>
+                  <Th className="text-right">Con result.</Th>
+                  <Th className="text-right">Ganadoras perdidas</Th>
+                  <Th className="text-right">Perdedoras evitadas</Th>
+                  <Th className="text-right">Fuga neta</Th>
+                  <Th>Palanca</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {autopsy.gates.map((g) => {
+                  const info = GATE_INFO[g.gate];
+                  return (
+                    <tr key={g.gate}>
+                      <Td className="font-medium">{info?.label ?? g.gate}</Td>
+                      <Td className="text-right">{g.blocked}</Td>
+                      <Td className="text-right">{g.resolved}</Td>
+                      <Td className="text-right text-watch">${g.missedWinners.toFixed(2)}</Td>
+                      <Td className="text-right text-profit">${g.avoidedLosers.toFixed(2)}</Td>
+                      <Td className="text-right font-semibold">
+                        <span className={g.net > 0 ? "text-loss" : g.net < 0 ? "text-profit" : "text-mist"}>
+                          {g.net > 0 ? "+" : ""}${g.net.toFixed(2)}
+                        </span>
+                      </Td>
+                      <Td className="text-xs text-mist">{info?.lever ?? "—"}</Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+            <div className="mt-3 text-xs text-mist">
+              La 🧠 IA lee esta misma tabla y prioriza aflojar la compuerta con mayor fuga neta positiva (dentro de
+              cotas de seguridad), en vez de aflojar a ciegas. Ver 🧠 Recomendaciones.
+            </div>
+          </>
+        )}
+      </Card>
 
       <Card title="Libros en paralelo: ⚡ experimento en vivo vs estrategia principal">
         {inPlay.live.count === 0 && inPlay.preGame.count === 0 ? (

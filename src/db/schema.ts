@@ -162,6 +162,9 @@ export const decisionJournal = sqliteTable(
     liquidityScore: real("liquidity_score"),
     thesisScore: real("thesis_score"),
     simulatedPositionSize: real("simulated_position_size"),
+    // Skip autopsy: the PRIMARY gate that blocked this signal (null if copied).
+    // Lets us measure which filter is leaking profitable signals vs blind copy.
+    blockedGate: text("blocked_gate"),
     ruleSetVersion: integer("rule_set_version"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -199,7 +202,7 @@ export const paperTrades = sqliteTable(
     // pre-game strategy; "live" = the parallel in-play experiment; "trade" =
     // the quota-trader book (copies buy->sell round-trips of odds-scalpers).
     // The ledgers NEVER mix: every core stat filters track='core'.
-    track: text("track", { enum: ["core", "live", "trade"] })
+    track: text("track", { enum: ["core", "live", "trade", "crypto"] })
       .notNull()
       .default("core"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
@@ -260,7 +263,7 @@ export const ruleSets = sqliteTable(
     // Independent rule lineages: "core" (main pre-game strategy), "live"
     // (the in-play experiment) and "trade" (the quota-trader book). Each
     // self-improves on its OWN evidence.
-    scope: text("scope", { enum: ["core", "live", "trade"] }).notNull().default("core"),
+    scope: text("scope", { enum: ["core", "live", "trade", "crypto"] }).notNull().default("core"),
     version: integer("version").notNull(),
     active: integer("active", { mode: "boolean" }).notNull().default(false),
     rulesJson: text("rules_json").notNull(),
@@ -272,7 +275,7 @@ export const ruleSets = sqliteTable(
 
 export const ruleChanges = sqliteTable("rule_changes", {
   id: text("id").primaryKey(),
-  scope: text("scope", { enum: ["core", "live", "trade"] }).notNull().default("core"),
+  scope: text("scope", { enum: ["core", "live", "trade", "crypto"] }).notNull().default("core"),
   oldRuleSetId: text("old_rule_set_id"),
   newRuleSetId: text("new_rule_set_id").notNull(),
   changedBy: text("changed_by").notNull().default("agent"),

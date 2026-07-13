@@ -1,0 +1,1 @@
+ALTER TABLE `decision_journal` ADD `blocked_gate` text;

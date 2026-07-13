@@ -10,6 +10,7 @@ import {
   getInPlayPaperPerformance,
   getLiveStats,
   getOverviewStats,
+  getSkipAutopsy,
   getTradeStats,
   getWalletPaperPerformance,
 } from "@/lib/queries";
@@ -109,6 +110,7 @@ function gatherEvidence(db: Db) {
   const live = getLiveStats(db);
   const trade = getTradeStats(db);
   const ledgers = getInPlayPaperPerformance(db);
+  const autopsy = getSkipAutopsy(db);
   const walletPerf = getWalletPaperPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
   const coreRules = getActiveRules(db, "core");
   const liveRules = getActiveRules(db, "live");
@@ -166,6 +168,14 @@ function gatherEvidence(db: Db) {
         badCopies: bench.badCopies,
         goodSkips: bench.goodSkips,
       },
+      // Skip autopsy: per-gate leak. net>0 means that filter blocked more profit
+      // than loss — the concrete gate to loosen when blind copy beats the bot.
+      // gate->rule key: entry_above_max=maxEntryPrice(subir), entry_below_min=
+      // minEntryPrice(bajar), drift=maxPriceDrift(subir), spread=maxSpread(subir),
+      // liquidity=minLiquidity(bajar), wallet_score=minWalletGlobalScore(bajar),
+      // below_copy_threshold=paperCopyThreshold(bajar). Otros (is_sell, no_price,
+      // resolve_*, exposure_dup) son estructurales, no un simple umbral.
+      skipAutopsy: { gates: autopsy.gates, reviewedSignals: autopsy.reviewedSignals },
       rules: { version: coreRules.version, values: coreRules.rules },
     },
     live: {
@@ -234,6 +244,8 @@ const SYSTEM_PROMPT = `Eres el analista experto de "La Sombra", un bot de invest
 CONTABILIDAD (importante para no marcar falsas discrepancias): totalPaperPnl/totalPnl = realizado + NO realizado (posiciones abiertas marcadas al bid, que se mueven). El benchmark botFiltered es SOLO realizado. Para comparar el libro contra el benchmark usa realizedPnl (no totalPaperPnl). Que totalPaperPnl y el benchmark difieran es NORMAL (uno incluye abiertas), no un error contable.
 
 Tu trabajo: analizar el corte de datos y devolver un juicio honesto de EXPERTO. Sé directo sobre lo que te gusta y lo que NO. Distingue señal real de ruido: con pocas resueltas (<30) casi todo es varianza — dilo claramente y sé conservador.
+
+AUTOPSIA DE DESCARTES (core.skipAutopsy): cuando la copia ciega le gana al bot, NO aflojes a ciegas. Mira la tabla por compuerta: 'net'>0 significa que ESA compuerta bloqueó más ganancia que pérdida — es la que fuga plata. Prioriza recomendar aflojar la compuerta con mayor 'net' positivo, mapeándola a su clave de regla (ver comentario en la evidencia). Si una compuerta tiene 'net'<0 está haciendo bien su trabajo (evita más pérdida que ganancia): NO la toques. Requiere muestra suficiente (reviewedSignals y 'resolved' por compuerta) antes de actuar; con poca evidencia, deja la recomendación en nivel medio para revisión humana en vez de auto-aplicar.
 
 AUTO-REVISIÓN (obligatoria si hay previousAnalysis): antes de juzgar el corte nuevo, audita tu análisis anterior contra los datos de HOY. Empieza el summary con 1-2 frases de "revisión del corte anterior": qué lectura/recomendación tuya se sostuvo, cuál resultó equivocada o era un artefacto de datos (dilo sin excusas), y si un cambio auto-aplicado tuyo mejoró o empeoró la evidencia. No repitas recomendaciones ya resueltas; si una sigue pendiente y vigente, dilo explícitamente. Un dato en null puede ser TIMING de despliegue (pipeline recién desplegado, aún sin poblar) — antes de declarar un pipeline roto, considera si el corte anterior ya lo mostraba o si es nuevo.
 

@@ -37,6 +37,7 @@ runScript("score:trades", async (db) => {
   const { rules, version } = getActiveRules(db);
   const { rules: liveRules } = getActiveRules(db, "live"); // ⚡ experiment's own rules
   const { rules: tradeRules } = getActiveRules(db, "trade"); // 🔁 quota-scalper book's own rules
+  const { rules: cryptoRules } = getActiveRules(db, "crypto"); // ₿ crypto book's own rules
   const control = getControlSettings(db); // manual ⚡ live on/off + stake (paper only)
 
   const pending = db
@@ -145,6 +146,7 @@ runScript("score:trades", async (db) => {
     const journalId = newId();
     let filled = false;
     let decision = result.decision;
+    let blockedGate = result.blockedGate; // for the skip autopsy
 
     // --- copy the exit: the wallet we copied just SOLD this market/outcome ---
     // Close our open paper copies of THAT wallet at the current bids (both
@@ -197,6 +199,7 @@ runScript("score:trades", async (db) => {
         .get();
       if (openAlready) {
         decision = "skip";
+        blockedGate = "exposure_dup";
         reasons.push("exposure guard: an open paper position already exists on this market/outcome");
       }
     }
@@ -357,6 +360,61 @@ runScript("score:trades", async (db) => {
       }
     }
 
+    // --- ₿ CRYPTO BOOK (parallel ledger, track="crypto") ---
+    // The 4th book: paper-copies BUYs from wallets discovered by mining crypto
+    // markets (sources includes "crypto-market"), within the calculated crypto
+    // entry band (55–75¢) — above the coin-flip and below expensive favorites.
+    // Fixed $5. Its own rules; the exit is closed by the SELL block above when
+    // the wallet sells. Never touches core/live/trade stats.
+    const isCryptoWallet = (wallet?.sources ?? "").includes("crypto-market");
+    const cryptoDrift = book?.bestAsk != null ? Math.abs(book.bestAsk - obs.walletEntryPrice) : null;
+    if (
+      isCryptoWallet &&
+      obs.side === "BUY" &&
+      book &&
+      (wallet?.globalScore ?? 0) >= cryptoRules.minWalletGlobalScore &&
+      book.bestAsk !== null &&
+      book.bestAsk >= cryptoRules.minEntryPrice &&
+      book.bestAsk <= cryptoRules.maxEntryPrice &&
+      (cryptoDrift === null || cryptoDrift <= cryptoRules.maxPriceDrift) &&
+      (book.spread === null || book.spread <= cryptoRules.maxSpread) &&
+      (liquidity === null || liquidity >= cryptoRules.minLiquidity)
+    ) {
+      const cryptoDup = [
+        eq(paperTrades.status, "open"),
+        eq(paperTrades.track, "crypto"),
+        eq(paperTrades.marketId, obs.marketId),
+      ];
+      if (obs.outcome) cryptoDup.push(eq(paperTrades.outcome, obs.outcome));
+      const cryptoOpen = db.select({ id: paperTrades.id }).from(paperTrades).where(and(...cryptoDup)).get();
+      if (!cryptoOpen) {
+        const cryptoTrade = openPaperTrade(db, {
+          decisionJournalId: journalId,
+          walletAddress: obs.walletAddress,
+          marketId: obs.marketId,
+          tokenId: obs.tokenId,
+          marketQuestion: market?.question ?? obs.marketQuestion,
+          outcome: obs.outcome,
+          usdSize: cryptoRules.minPositionSize,
+          book,
+          track: "crypto",
+          now,
+        });
+        if (cryptoTrade.opened) {
+          reasons.push(`crypto book: opened $${cryptoRules.minPositionSize.toFixed(2)} crypto copy (parallel ledger)`);
+          if (telegramConfigured()) {
+            const q = escapeHtml((market?.question ?? obs.marketQuestion ?? obs.marketId).slice(0, 120));
+            await sendTelegramMessage(
+              `₿ <b>LIBRO CRIPTO — copia en papel</b>\n${q}\n` +
+                `Billetera ${obs.walletAddress.slice(0, 10)}… · entrada $${cryptoRules.minPositionSize.toFixed(2)} a ` +
+                `${cryptoTrade.fill.avgFillPrice !== null ? (cryptoTrade.fill.avgFillPrice * 100).toFixed(1) : "?"}¢\n` +
+                `(banda 55–75¢ · cerramos cuando la billetera venda — libro aparte)`,
+            );
+          }
+        }
+      }
+    }
+
     db.insert(decisionJournal)
       .values({
         id: journalId,
@@ -378,6 +436,7 @@ runScript("score:trades", async (db) => {
         liquidityScore: result.subscores.liquidityScore,
         thesisScore: result.subscores.thesisScore,
         simulatedPositionSize: filled ? result.simulatedPositionSize : null,
+        blockedGate: decision === "paper_copy" ? null : blockedGate,
         ruleSetVersion: version,
         createdAt: now,
       })

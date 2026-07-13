@@ -13,7 +13,12 @@ import {
   ruleSets,
   walletProfiles,
 } from "@/db/schema";
-import { computeBenchmarks, hypotheticalPnl, type DecisionOutcomeRow } from "./benchmarks";
+import {
+  computeBenchmarks,
+  computeSkipAutopsy,
+  hypotheticalPnl,
+  type DecisionOutcomeRow,
+} from "./benchmarks";
 
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
@@ -58,7 +63,7 @@ export function getOverviewStats(db: Db) {
 }
 
 /** Cumulative paper PnL series from pnl snapshots + resolutions (for the chart). */
-export function getPnlSeries(db: Db, track: "core" | "live" | "trade" = "core"): { t: number; pnl: number }[] {
+export function getPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" = "core"): { t: number; pnl: number }[] {
   const snaps = db
     .select({
       paperTradeId: pnlSnapshots.paperTradeId,
@@ -88,7 +93,7 @@ export function getPnlSeries(db: Db, track: "core" | "live" | "trade" = "core"):
  * resolves or is exit-closed — the honest scorecard, free of the open-position
  * mark-to-market noise that dominates getPnlSeries.
  */
-export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" = "core"): { t: number; pnl: number }[] {
+export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" = "core"): { t: number; pnl: number }[] {
   const settled = db
     .select({
       realizedPnl: paperTrades.realizedPnl,
@@ -153,6 +158,51 @@ export function getBenchmarkSummary(db: Db) {
   return computeBenchmarks(getDecisionOutcomes(db));
 }
 
+/**
+ * Skip autopsy: for every non-copied signal, pair its blocking gate with what
+ * it WOULD have earned (hypothetical $10 to its known outcome). Groups by gate
+ * so we can see which filter leaks the most profit. Only signals with a known
+ * outcome (via outcome_reviews) contribute to the $ figures.
+ */
+export function getSkipAutopsy(db: Db) {
+  const decisions = db
+    .select({
+      id: decisionJournal.id,
+      decision: decisionJournal.decision,
+      blockedGate: decisionJournal.blockedGate,
+      observedTradeId: decisionJournal.observedTradeId,
+    })
+    .from(decisionJournal)
+    .where(ne(decisionJournal.decision, "paper_copy"))
+    .all();
+  if (decisions.length === 0) return { gates: [], reviewedSignals: 0 };
+
+  const reviews = db.select().from(outcomeReviews).all();
+  const reviewByDecision = new Map(reviews.map((r) => [r.decisionJournalId, r]));
+  const observedIds = decisions.map((d) => d.observedTradeId);
+  const observed = observedIds.length
+    ? db.select().from(observedTrades).where(inArray(observedTrades.id, observedIds)).all()
+    : [];
+  const observedById = new Map(observed.map((o) => [o.id, o]));
+
+  let reviewedSignals = 0;
+  const rows = decisions.map((d) => {
+    const review = reviewByDecision.get(d.id);
+    const obs = observedById.get(d.observedTradeId);
+    const entry = obs?.detectedPrice ?? obs?.walletEntryPrice ?? null;
+    let hypo: number | null = null;
+    if (entry !== null && review) {
+      if (review.finalOutcome === "won") hypo = hypotheticalPnl(entry, 1);
+      else if (review.finalOutcome === "lost") hypo = hypotheticalPnl(entry, 0);
+      else if (review.priceAfter24h !== null) hypo = hypotheticalPnl(entry, review.priceAfter24h);
+    }
+    if (hypo !== null) reviewedSignals++;
+    return { blockedGate: d.blockedGate, hypotheticalPnl: hypo };
+  });
+
+  return { gates: computeSkipAutopsy(rows), reviewedSignals };
+}
+
 /** Latest market snapshot per market id. */
 export function getLatestSnapshots(db: Db, marketIds: string[]) {
   if (marketIds.length === 0) return new Map<string, typeof marketSnapshots.$inferSelect>();
@@ -168,7 +218,7 @@ export function getLatestSnapshots(db: Db, marketIds: string[]) {
 }
 
 /** Per-wallet paper performance (realized + unrealized) for a given ledger. */
-export function getWalletPaperPerformance(db: Db, track: "core" | "live" | "trade" = "core") {
+export function getWalletPaperPerformance(db: Db, track: "core" | "live" | "trade" | "crypto" = "core") {
   const rows = db
     .select({
       walletAddress: paperTrades.walletAddress,
@@ -371,6 +421,58 @@ export function getTradeStats(db: Db) {
     quotaWallets,
     tradeRuleVersion: tradeRuleSet?.version ?? null,
     tradeRuleChanges,
+  };
+}
+
+/** Everything the ₿ Cripto book needs — crypto ledger only, never core/live/trade. */
+export function getCryptoBookStats(db: Db) {
+  const trades = db
+    .select()
+    .from(paperTrades)
+    .where(eq(paperTrades.track, "crypto"))
+    .orderBy(desc(paperTrades.openedAt))
+    .all();
+  const open = trades.filter((t) => t.status === "open");
+  const settled = trades.filter((t) => t.status !== "open"); // resolved or exit-closed
+  const realized = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+  const unrealized = open.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
+  const wins = settled.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+  const exitClosed = settled.filter((t) => t.status === "closed").length;
+
+  // Crypto-sourced wallets that feed this book (mined off the "Crypto" tag).
+  const cryptoWallets = db
+    .select()
+    .from(walletProfiles)
+    .where(like(walletProfiles.sources, "%crypto-market%"))
+    .orderBy(desc(walletProfiles.globalScore))
+    .limit(15)
+    .all();
+
+  const cryptoRuleSet = db
+    .select()
+    .from(ruleSets)
+    .where(and(eq(ruleSets.active, true), eq(ruleSets.scope, "crypto")))
+    .get();
+  const cryptoRuleChanges = db
+    .select()
+    .from(ruleChanges)
+    .where(eq(ruleChanges.scope, "crypto"))
+    .orderBy(desc(ruleChanges.createdAt))
+    .limit(5)
+    .all();
+
+  return {
+    trades,
+    openCount: open.length,
+    settledCount: settled.length,
+    exitClosed,
+    totalPnl: Math.round((realized + unrealized) * 100) / 100,
+    realizedPnl: Math.round(realized * 100) / 100,
+    unrealizedPnl: Math.round(unrealized * 100) / 100,
+    winRate: settled.length ? wins / settled.length : null,
+    cryptoWallets,
+    cryptoRuleVersion: cryptoRuleSet?.version ?? null,
+    cryptoRuleChanges,
   };
 }
 

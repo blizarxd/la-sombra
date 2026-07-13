@@ -92,3 +92,54 @@ export function hypotheticalPnl(entryPrice: number, finalPrice: number, usd = 10
   const shares = usd / entryPrice;
   return Math.round((shares * finalPrice - usd) * 100) / 100;
 }
+
+// ---------------------------------------------------------------------------
+// Skip autopsy: which filter gate is leaking profitable signals?
+// For every signal the bot did NOT copy, we know (a) the gate that blocked it
+// and (b) what it would have earned (hypothetical $10 to resolution/now). Group
+// by gate to see, per filter: how much profit it blocked (missed winners) vs how
+// much loss it saved (avoided losers). A POSITIVE net means that gate is costing
+// us money — the concrete target to loosen. This turns the vague "blind copy
+// beats the bot" into an actionable, per-gate diagnosis.
+// ---------------------------------------------------------------------------
+export interface SkipAutopsyRow {
+  blockedGate: string | null;
+  /** Hypothetical pnl per $10 had we copied this blocked signal. Null if unknown. */
+  hypotheticalPnl: number | null;
+}
+
+export interface GateLeak {
+  gate: string;
+  blocked: number; // signals this gate blocked
+  resolved: number; // of those, how many have a known outcome
+  missedWinners: number; // $ of profit blocked (sum of positive hypotheticals)
+  avoidedLosers: number; // $ of loss saved (sum of negative hypotheticals, as a positive number)
+  net: number; // missedWinners - avoidedLosers; >0 = this gate leaks money
+}
+
+/** Per-gate leak table, worst leak (highest positive net) first. */
+export function computeSkipAutopsy(rows: SkipAutopsyRow[]): GateLeak[] {
+  const byGate = new Map<string, GateLeak>();
+  for (const r of rows) {
+    if (!r.blockedGate) continue; // copied signals aren't blocked
+    const g =
+      byGate.get(r.blockedGate) ??
+      { gate: r.blockedGate, blocked: 0, resolved: 0, missedWinners: 0, avoidedLosers: 0, net: 0 };
+    g.blocked++;
+    if (r.hypotheticalPnl !== null) {
+      g.resolved++;
+      if (r.hypotheticalPnl > 0) g.missedWinners += r.hypotheticalPnl;
+      else if (r.hypotheticalPnl < 0) g.avoidedLosers += -r.hypotheticalPnl;
+    }
+    byGate.set(r.blockedGate, g);
+  }
+  const round = (x: number) => Math.round(x * 100) / 100;
+  return [...byGate.values()]
+    .map((g) => ({
+      ...g,
+      missedWinners: round(g.missedWinners),
+      avoidedLosers: round(g.avoidedLosers),
+      net: round(g.missedWinners - g.avoidedLosers),
+    }))
+    .sort((a, b) => b.net - a.net);
+}

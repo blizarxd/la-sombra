@@ -4,7 +4,7 @@ import { ruleSets, ruleChanges } from "@/db/schema";
 import { newId } from "./ids";
 
 /** Which strategy a rule lineage belongs to. */
-export type RuleScope = "core" | "live" | "trade";
+export type RuleScope = "core" | "live" | "trade" | "crypto";
 
 /**
  * Versioned, self-tunable rule set. The agent may change these values
@@ -140,6 +140,28 @@ export const DEFAULT_TRADE_RULES: Rules = {
   maxPositionSize: 5,
 };
 
+/**
+ * ₿ Crypto book defaults. A dedicated 4th ledger that paper-copies BUYs from
+ * wallets mined off crypto markets (Polymarket "Crypto" tag). Crypto up/down
+ * markets are short and fast, so: no minimum time to resolution, a tight
+ * late-entry drift guard (odds move fast), thinner-liquidity tolerance, and a
+ * calculated entry band 55–75¢ — above the coin-flip (~50¢, no edge) and below
+ * the expensive-favorite zone (>80¢, bad payoff). Fixed $5 size, self-tunes on
+ * its own crypto evidence.
+ */
+export const DEFAULT_CRYPTO_RULES: Rules = {
+  ...DEFAULT_RULES,
+  minEntryPrice: 0.55,
+  maxEntryPrice: 0.75,
+  maxPriceDrift: 0.05,
+  minLiquidity: 200,
+  minTimeToResolutionHours: 0,
+  maxTimeToResolutionHours: 24 * 45,
+  minWalletGlobalScore: 45,
+  minPositionSize: 5,
+  maxPositionSize: 5,
+};
+
 /** Get the active rule set for a scope, seeding v1 defaults if none exists. */
 export function getActiveRules(
   db: Db,
@@ -156,7 +178,13 @@ export function getActiveRules(
   const now = new Date();
   const id = newId();
   const defaults =
-    scope === "live" ? DEFAULT_LIVE_RULES : scope === "trade" ? DEFAULT_TRADE_RULES : DEFAULT_RULES;
+    scope === "live"
+      ? DEFAULT_LIVE_RULES
+      : scope === "trade"
+        ? DEFAULT_TRADE_RULES
+        : scope === "crypto"
+          ? DEFAULT_CRYPTO_RULES
+          : DEFAULT_RULES;
   db.insert(ruleSets)
     .values({
       id,

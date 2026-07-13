@@ -27,6 +27,26 @@ export interface TradeScoreInput {
   thesisScore?: number;
 }
 
+/**
+ * The single gate that blocked a signal, for the skip autopsy. `null` when the
+ * signal was copied. Order of precedence matches the checks below (first hit
+ * wins) so we can attribute a missed winner to one concrete filter.
+ */
+export type BlockedGate =
+  | "no_price"
+  | "entry_above_max"
+  | "entry_below_min"
+  | "drift"
+  | "spread"
+  | "liquidity"
+  | "resolve_too_soon"
+  | "resolve_too_far"
+  | "wallet_score"
+  | "is_sell"
+  | "below_copy_threshold" // soft: scored into the watchlist band, not copied
+  | "low_score" // soft: scored below the watchlist band
+  | "exposure_dup"; // copyable, but an open position already exists (set by the script)
+
 export interface TradeScoreResult {
   decision: "paper_copy" | "watchlist" | "skip";
   copyScore: number; // 0-100
@@ -35,6 +55,8 @@ export interface TradeScoreResult {
   reasons: string[];
   risks: string[];
   hardSkip: boolean;
+  /** Which gate blocked this signal (null if copied). See BlockedGate. */
+  blockedGate: BlockedGate | null;
   subscores: {
     walletQualityScore: number;
     roiScore: number;
@@ -54,6 +76,12 @@ export function scoreTrade(input: TradeScoreInput, rules: Rules): TradeScoreResu
   const reasons: string[] = [];
   const risks: string[] = [];
   let hardSkip = false;
+  // First hard gate that fails is the one we blame (for the skip autopsy).
+  let blockedGate: BlockedGate | null = null;
+  const block = (gate: BlockedGate) => {
+    hardSkip = true;
+    if (blockedGate === null) blockedGate = gate;
+  };
 
   const entryPrice = input.side === "BUY" ? input.currentAsk : input.currentBid;
   const drift =
@@ -61,47 +89,47 @@ export function scoreTrade(input: TradeScoreInput, rules: Rules): TradeScoreResu
 
   // ---------------- hard gates (any failure -> skip) ----------------
   if (entryPrice === null) {
-    hardSkip = true;
+    block("no_price");
     risks.push("no book price available for our side");
   } else {
     if (input.side === "BUY" && entryPrice > rules.maxEntryPrice) {
-      hardSkip = true;
+      block("entry_above_max");
       risks.push(`entry band: ask ${entryPrice.toFixed(2)} > max ${rules.maxEntryPrice} (extreme price)`);
     }
     if (input.side === "BUY" && entryPrice < rules.minEntryPrice) {
-      hardSkip = true;
+      block("entry_below_min");
       risks.push(`entry band: ask ${entryPrice.toFixed(2)} < min ${rules.minEntryPrice} (lottery ticket)`);
     }
   }
   if (drift !== null && drift > rules.maxPriceDrift) {
-    hardSkip = true;
+    block("drift");
     risks.push(`late entry: price moved ${drift.toFixed(3)} since wallet entry (> ${rules.maxPriceDrift})`);
   }
   if (input.spread !== null && input.spread > rules.maxSpread) {
-    hardSkip = true;
+    block("spread");
     risks.push(`spread ${input.spread.toFixed(3)} > max ${rules.maxSpread}`);
   }
   if (input.liquidity !== null && input.liquidity < rules.minLiquidity) {
-    hardSkip = true;
+    block("liquidity");
     risks.push(`liquidity $${Math.round(input.liquidity)} < min $${rules.minLiquidity}`);
   }
   if (input.timeToResolutionHours !== null) {
     if (input.timeToResolutionHours < rules.minTimeToResolutionHours) {
-      hardSkip = true;
+      block("resolve_too_soon");
       risks.push(`resolves in ${input.timeToResolutionHours.toFixed(1)}h (< ${rules.minTimeToResolutionHours}h)`);
     }
     if (input.timeToResolutionHours > rules.maxTimeToResolutionHours) {
-      hardSkip = true;
+      block("resolve_too_far");
       risks.push(`resolution too far out (${Math.round(input.timeToResolutionHours / 24)}d)`);
     }
   }
   if (input.walletGlobalScore < rules.minWalletGlobalScore) {
-    hardSkip = true;
+    block("wallet_score");
     risks.push(`wallet score ${Math.round(input.walletGlobalScore)} < min ${rules.minWalletGlobalScore}`);
   }
   if (input.side === "SELL") {
     // v1 only copies directional BUY entries; a wallet's SELL is an exit signal.
-    hardSkip = true;
+    block("is_sell");
     risks.push("SELL signals are treated as exit info, not copyable entries, in v1");
   }
 
@@ -138,9 +166,11 @@ export function scoreTrade(input: TradeScoreInput, rules: Rules): TradeScoreResu
     reasons.push(`copy score ${Math.round(copyScore)} >= ${rules.paperCopyThreshold}`);
   } else if (copyScore >= rules.watchlistThreshold) {
     decision = "watchlist";
+    blockedGate = "below_copy_threshold";
     reasons.push(`copy score ${Math.round(copyScore)} in watchlist band`);
   } else {
     decision = "skip";
+    if (blockedGate === null) blockedGate = "low_score";
     reasons.push(`copy score ${Math.round(copyScore)} < ${rules.watchlistThreshold}`);
   }
 
@@ -173,6 +203,7 @@ export function scoreTrade(input: TradeScoreInput, rules: Rules): TradeScoreResu
     reasons,
     risks,
     hardSkip,
+    blockedGate,
     subscores: {
       walletQualityScore: input.walletGlobalScore,
       roiScore: input.walletRoiScore,

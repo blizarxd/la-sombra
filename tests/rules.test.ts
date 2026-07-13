@@ -4,6 +4,7 @@ import { ruleChanges, ruleSets } from "@/db/schema";
 import {
   applyRuleChanges,
   clampRuleValue,
+  DEFAULT_CRYPTO_RULES,
   DEFAULT_RULES,
   getActiveRules,
   RULE_BOUNDS,
@@ -26,6 +27,21 @@ describe("rule versioning", () => {
     getActiveRules(db);
     getActiveRules(db);
     expect(db.select().from(ruleSets).all()).toHaveLength(1);
+  });
+
+  it("seeds the crypto scope with its own 55–75¢ band, fixed $5, no min-time", () => {
+    const db = testDb();
+    const { rules, version } = getActiveRules(db, "crypto");
+    expect(version).toBe(1);
+    expect(rules).toEqual(DEFAULT_CRYPTO_RULES);
+    expect(rules.minEntryPrice).toBe(0.55);
+    expect(rules.maxEntryPrice).toBe(0.75);
+    expect(rules.minPositionSize).toBe(5);
+    expect(rules.maxPositionSize).toBe(5);
+    expect(rules.minTimeToResolutionHours).toBe(0);
+    // crypto seeds independently of core — its own lineage row
+    const scoped = db.select().from(ruleSets).where(eq(ruleSets.scope, "crypto")).all();
+    expect(scoped).toHaveLength(1);
   });
 
   it("applies an automatic change: new version, old deactivated, change logged", () => {
