@@ -7,6 +7,7 @@ import {
   getInPlayPaperPerformance,
   getPnlSeries,
   getRealizedPnlSeries,
+  getResolutionWindowProjection,
   getSkipAutopsy,
   getWalletPaperPerformance,
 } from "@/lib/queries";
@@ -45,6 +46,8 @@ export default function PerformancePage() {
   const db = getDb();
   const autopsy = getSkipAutopsy(db);
   const daily = getDailyPnlByBook(db);
+  const windowProj = getResolutionWindowProjection(db, "core");
+  const CORE_WINDOW_DAYS = 30; // active policy cap (see enforce-core-policy)
   const series = getPnlSeries(db);
   const realizedSeries = getRealizedPnlSeries(db);
   const bench = getBenchmarkSummary(db);
@@ -212,6 +215,54 @@ export default function PerformancePage() {
               Libros separados que nunca se mezclan: el experimento en vivo copia in-play con $5 fijos y sin guardia
               de deriva (eso es lo que mide); la estrategia principal sigue intacta con todas sus reglas. Detalle del
               experimento en la página ⚡ En Vivo.
+            </div>
+          </>
+        )}
+      </Card>
+
+      <Card title="Capital parado: posiciones abiertas proyectadas por ventana de resolución (core)">
+        {windowProj.settledSample < 5 ? (
+          <Empty>Aún no hay suficientes trades resueltos para proyectar (se necesitan ≥5).</Empty>
+        ) : (
+          <>
+            <div className="mb-3 text-xs text-mist">
+              Core aguanta cada copia hasta resolución, así que las abiertas obedecen a{" "}
+              <b>Ley de Little: abiertas ≈ (copias que califican/día) × (días promedio abiertas)</b>. Acortar la ventana
+              baja las dos cosas. Ahora mismo: <b>{windowProj.currentOpen} abiertas</b>, ritmo{" "}
+              <b>{windowProj.arrivalPerDay}/día</b>, hold mediano <b>{windowProj.medianHoldDays}d</b>.
+            </div>
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Ventana máx.</Th>
+                  <Th className="text-right">% copias que califican</Th>
+                  <Th className="text-right">Hold prom.</Th>
+                  <Th className="text-right">Copias/día</Th>
+                  <Th className="text-right">Abiertas proyectadas</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {windowProj.projection.map((p) => {
+                  const active = p.windowDays === CORE_WINDOW_DAYS;
+                  return (
+                    <tr key={p.windowDays} className={active ? "bg-panel2" : ""}>
+                      <Td className="font-medium">
+                        {p.windowDays} días{active ? <span className="ml-2 text-[11px] text-accent">← activa</span> : null}
+                      </Td>
+                      <Td className="text-right">{pct(p.qualifyShare)}</Td>
+                      <Td className="text-right">{p.avgHoldDays}d</Td>
+                      <Td className="text-right">{p.copiesPerDay}</Td>
+                      <Td className="text-right font-semibold">≈ {p.projectedOpen}</Td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </Table>
+            <div className="mt-3 text-xs text-mist">
+              Estimación desde el historial de trades <b>ya resueltos</b> (los de muy largo plazo aún abiertos no entran,
+              así que las ventanas grandes están, si acaso, subestimadas). La columna clave es <b>Abiertas proyectadas</b>:
+              es cuánto capital (en papel) tendrías parado en equilibrio con esa ventana. Menos ventana = menos abiertas =
+              feedback más rápido.
             </div>
           </>
         )}

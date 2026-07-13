@@ -20,6 +20,7 @@
     "score:trades": "tsx src/scripts/score-trades.ts",
     "paper:update-pnl": "tsx src/scripts/paper-update-pnl.ts",
     "review:outcomes": "tsx src/scripts/review-outcomes.ts",
+    "enforce:core-policy": "tsx src/scripts/enforce-core-policy.ts",
     "update:rules": "tsx src/scripts/update-rules.ts",
     "update:rules-live": "tsx src/scripts/update-rules-live.ts",
     "update:rules-trade": "tsx src/scripts/update-rules-trade.ts",

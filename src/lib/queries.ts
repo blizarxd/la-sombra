@@ -20,6 +20,7 @@ import {
   type DecisionOutcomeRow,
 } from "./benchmarks";
 import { dayKeyTz } from "./format";
+import { projectOpenByWindow } from "./projection";
 
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
@@ -663,6 +664,55 @@ export function getDailyPnlByBook(db: Db) {
   }
 
   return { tracks: [...tracks], days, totals, grandTotal: round(grand), grandCount };
+}
+
+/**
+ * Parked-capital projection: how many positions the core book would hold open in
+ * steady state for different max-resolution windows. Uses the real hold-time
+ * distribution of already-settled copies + the recent daily copy rate. Lets the
+ * window be chosen against how many open positions ("lung") is tolerable.
+ */
+export function getResolutionWindowProjection(db: Db, track: "core" | "live" | "trade" | "crypto" = "core") {
+  const trades = db
+    .select({
+      status: paperTrades.status,
+      openedAt: paperTrades.openedAt,
+      resolvedAt: paperTrades.resolvedAt,
+      closedAt: paperTrades.closedAt,
+    })
+    .from(paperTrades)
+    .where(eq(paperTrades.track, track))
+    .all();
+
+  const DAY = 86_400_000;
+  const now = Date.now();
+  const settled = trades.filter((t) => t.status !== "open");
+  const holdDays = settled
+    .map((t) => {
+      const settleAt = t.resolvedAt ?? t.closedAt;
+      return settleAt ? (settleAt.getTime() - t.openedAt.getTime()) / DAY : null;
+    })
+    .filter((h): h is number => h !== null && h >= 0);
+
+  // Arrival rate from the last 7 days of opens (fall back to full span if newer).
+  const sevenAgo = now - 7 * DAY;
+  const recentOpens = trades.filter((t) => t.openedAt.getTime() >= sevenAgo).length;
+  const firstOpen = trades.reduce((min, t) => Math.min(min, t.openedAt.getTime()), now);
+  const spanDays = Math.max(1, Math.min(7, (now - firstOpen) / DAY));
+  const arrivalPerDay = recentOpens / spanDays;
+
+  const sortedHold = [...holdDays].sort((a, b) => a - b);
+  const medianHoldDays = sortedHold.length
+    ? Math.round(sortedHold[Math.floor(sortedHold.length / 2)] * 10) / 10
+    : 0;
+
+  return {
+    currentOpen: trades.filter((t) => t.status === "open").length,
+    settledSample: holdDays.length,
+    arrivalPerDay: Math.round(arrivalPerDay * 10) / 10,
+    medianHoldDays,
+    projection: projectOpenByWindow(holdDays, arrivalPerDay, [3, 5, 14, 30, 45]),
+  };
 }
 
 /** Recent AI analyst runs (expert reads + recommendations), newest first. */

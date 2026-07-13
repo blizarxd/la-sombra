@@ -117,6 +117,7 @@ async function main() {
   log.info(`[operator:tick] === tick @ ${startedAt} (PAPER ONLY) ===`);
 
   // --- Frequent cycle: catch fresh signals and keep PnL current ---
+  step("enforce-core-policy.ts"); // idempotent human policy (max resolution window)
   step("monitor-trades.ts");
   step("score-trades.ts");
   step("paper-update-pnl.ts");
