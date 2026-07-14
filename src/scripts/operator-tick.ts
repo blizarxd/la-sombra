@@ -33,7 +33,7 @@ type State = { lastDailyRun?: string; lastCycleToken?: string };
 // regardless of whether it already ran today. Used to push a fresh AI "cut"
 // right after a meaningful change (e.g. removing the core stop-loss). It fires
 // exactly once per new token because the tick records it in operator-state.json.
-const DAILY_CYCLE_TOKEN = "2026-07-14-combo-scan-diagnostic-force";
+const DAILY_CYCLE_TOKEN = "2026-07-14-combo-scan-cause-detail";
 
 function readState(): State {
   try {

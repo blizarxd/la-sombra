@@ -9,12 +9,16 @@ import { AdapterError } from "./types";
 // undici here would crash monitor/score/every core script on import. The core
 // bot must not depend on a combo-book-only library.
 let htmlAgentPromise: Promise<{ fetch: typeof fetch; dispatcher: unknown }> | null = null;
+let usingFallbackFetch = false; // true when undici failed to load (global fetch: 16KB header cap)
 function getHtmlFetcher(): Promise<{ fetch: typeof fetch; dispatcher: unknown }> {
   if (!htmlAgentPromise) {
     htmlAgentPromise = import("undici")
       .then((u) => ({ fetch: u.fetch as unknown as typeof fetch, dispatcher: new u.Agent({ maxHeaderSize: 64 * 1024 }) }))
       // undici unavailable? fall back to global fetch (works unless headers overflow).
-      .catch(() => ({ fetch, dispatcher: undefined }));
+      .catch(() => {
+        usingFallbackFetch = true;
+        return { fetch, dispatcher: undefined };
+      });
   }
   return htmlAgentPromise;
 }
@@ -78,8 +82,14 @@ export async function httpGetText(source: string, url: string, timeoutMs = 20000
     } as RequestInit);
   } catch (err) {
     clearTimeout(timer);
+    // "fetch failed" alone is useless for diagnosis — surface the CAUSE chain
+    // (e.g. UND_ERR_HEADERS_OVERFLOW vs ECONNRESET vs a TLS reset) so the
+    // /combos diagnostic can tell "our fetch config" apart from a real block.
     const msg = err instanceof Error ? err.message : String(err);
-    throw new AdapterError(source, url, null, `network error: ${msg}`);
+    const cause = err instanceof Error ? (err.cause as { message?: string; code?: string } | undefined) : undefined;
+    const causeStr = cause ? ` — cause: ${cause.code ?? ""} ${cause.message ?? ""}`.trimEnd() : "";
+    const fetcherNote = usingFallbackFetch ? " [undici unavailable — global fetch, 16KB header cap]" : "";
+    throw new AdapterError(source, url, null, `network error: ${msg}${causeStr}${fetcherNote}`);
   }
   clearTimeout(timer);
   if (!res.ok) {
