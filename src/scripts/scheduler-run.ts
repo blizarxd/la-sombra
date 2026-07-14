@@ -2,25 +2,7 @@ import "../lib/env";
 import { execFile } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { APP_TZ } from "../lib/format";
 import { log } from "../lib/logger";
-
-/** Current {hour, dayKey} in the project timezone (UTC-4), server-TZ-independent. */
-function nowInAppTz(): { hour: number; dayKey: string } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: APP_TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date());
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
-  return {
-    hour: Number(get("hour")),
-    dayKey: `${get("year")}-${get("month")}-${get("day")}`,
-  };
-}
 
 /**
  * Standalone operator scheduler for cloud (Railway) 24/7 running.
@@ -85,27 +67,19 @@ function run(label: string, scriptFile: string): void {
   );
 }
 
-// Morning summary: send the daily report to Telegram once per day at a fixed
-// hour in the project timezone (UTC-4) — independent of the container's TZ.
-const morningHour = Number(process.env.MORNING_REPORT_HOUR ?? 8);
-let lastMorningKey = "";
-function maybeMorningReport(): void {
-  const { hour, dayKey } = nowInAppTz();
-  if (hour === morningHour && lastMorningKey !== dayKey) {
-    lastMorningKey = dayKey;
-    log.info(`[scheduler] 🌅 morning summary (${morningHour}:00 ${APP_TZ}) — sending report`);
-    run("morning report", "report-daily.ts");
-  }
-}
-
+// The daily cut (rules self-improvement, AI analyst, elite roster, EOD
+// report) fires from WITHIN operator-tick.ts's own 08:00 Johan's-clock gate —
+// there used to be a SECOND, independent 8am timer here that called
+// report-daily.ts on its own 5-minute poll, which could send the Telegram
+// report twice on the same Caracas day (once from each mechanism, at
+// slightly different moments). Removed 2026-07-14: one cut, one place.
 log.info(
   `[scheduler] active — operator every ${minutes} min` +
     (liveEnabled ? `, live observation every ${liveMinutes} min` : "") +
-    `, morning report at ${morningHour}:00 ${APP_TZ} (PAPER ONLY)`,
+    " (daily cut + report at 08:00 Johan's clock, PAPER ONLY)",
 );
 setTimeout(() => run("operator tick", "operator-tick.ts"), 15_000); // settle first
 setInterval(() => run("operator tick", "operator-tick.ts"), intervalMs);
 if (liveEnabled) {
   setInterval(() => run("live tick", "live-tick.ts"), liveMinutes * 60_000);
 }
-setInterval(maybeMorningReport, 5 * 60_000); // check every 5 min, fires once/day

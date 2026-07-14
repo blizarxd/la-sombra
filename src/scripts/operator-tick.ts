@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { and, isNotNull, isNull, like } from "drizzle-orm";
 import { getDb, getDbPath } from "../db/client";
 import { walletProfiles } from "../db/schema";
+import { APP_TZ, dayKeyTz, hourInAppTz } from "../lib/format";
 import { log } from "../lib/logger";
 
 /**
@@ -30,10 +31,19 @@ type State = { lastDailyRun?: string; lastCycleToken?: string };
 
 // One-shot force token: bump this string in a deploy to force the DAILY cycle
 // (self-improve rules + AI analyst + EOD report) to run ONCE on the next tick,
-// regardless of whether it already ran today. Used to push a fresh AI "cut"
-// right after a meaningful change (e.g. removing the core stop-loss). It fires
-// exactly once per new token because the tick records it in operator-state.json.
+// regardless of the 08:00 gate below. Used sparingly to push a fresh AI "cut"
+// right after a meaningful change without waiting for the next 8am window. It
+// fires exactly once per new token because the tick records it in
+// operator-state.json.
 const DAILY_CYCLE_TOKEN = "2026-07-14-elite-roster-launch";
+
+// Johan's requested cut time: once a day, at 8am on HIS clock (APP_TZ =
+// America/Caracas, UTC-4) — not "the first tick after UTC midnight" (which
+// used to land at a random hour of the Caracas day, and even overlapped with
+// the scheduler's separate morning-report trigger, risking two Telegram
+// reports on the same day). This is now the ONLY place the daily cycle fires
+// from — scheduler-run.ts's old standalone morning-report timer was removed.
+const DAILY_CYCLE_HOUR = 8;
 
 function readState(): State {
   try {
@@ -45,10 +55,6 @@ function readState(): State {
 
 function writeState(s: State): void {
   fs.writeFileSync(statePath, JSON.stringify(s, null, 2));
-}
-
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD (UTC)
 }
 
 /** True once at least one real (leaderboard-sourced) wallet is queued. */
@@ -113,8 +119,8 @@ function step(scriptFile: string, args: string[] = []): void {
 }
 
 async function main() {
-  const startedAt = new Date().toISOString();
-  log.info(`[operator:tick] === tick @ ${startedAt} (PAPER ONLY) ===`);
+  const now = new Date();
+  log.info(`[operator:tick] === tick @ ${now.toISOString()} (PAPER ONLY) ===`);
 
   // --- Frequent cycle: catch fresh signals and keep PnL current ---
   step("enforce-core-policy.ts"); // idempotent human policy (max resolution window)
@@ -147,17 +153,25 @@ async function main() {
     step("scan-wallets.ts", ["--limit", "30"]);
   }
 
-  // --- Daily cycle: once per calendar day, or immediately if the real-wallet
-  // queue is still empty (self-heals a fresh deploy without waiting a day). ---
+  // --- Daily cycle: once per Caracas calendar day, only during the 08:00
+  // hour. Two narrow exceptions bypass the hour gate: bootstrap (a fresh
+  // deploy with an empty wallet queue self-heals immediately instead of
+  // sitting idle until 8am) and a manual one-shot DAILY_CYCLE_TOKEN bump. ---
   const state = readState();
-  const today = todayKey();
-  const firstOfDay = state.lastDailyRun !== today;
+  const today = dayKeyTz(now); // Johan's calendar day, not UTC
+  const isCycleHour = hourInAppTz(now) === DAILY_CYCLE_HOUR;
+  const alreadyRanToday = state.lastDailyRun === today;
+  const firstOfDay = isCycleHour && !alreadyRanToday;
   const bootstrap = !hasWalletQueue();
   const forced = state.lastCycleToken !== DAILY_CYCLE_TOKEN; // one-shot deploy force
   if (firstOfDay || bootstrap || forced) {
     log.info(
       `[operator:tick] running DAILY cycle (${
-        forced ? `forced by token ${DAILY_CYCLE_TOKEN}` : firstOfDay ? "first tick of the day" : "bootstrap: empty wallet queue"
+        forced
+          ? `forced by token ${DAILY_CYCLE_TOKEN}`
+          : firstOfDay
+            ? `08:00 ${APP_TZ} cut`
+            : "bootstrap: empty wallet queue"
       })`,
     );
     step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
@@ -175,7 +189,9 @@ async function main() {
     step("report-daily.ts");
     writeState({ ...state, lastDailyRun: today, lastCycleToken: DAILY_CYCLE_TOKEN });
   } else {
-    log.info("[operator:tick] daily cycle already done today — frequent cycle only");
+    log.info(
+      `[operator:tick] daily cycle waits for 08:00 ${APP_TZ} (now ${hourInAppTz(now)}:00, already ran today=${alreadyRanToday}) — frequent cycle only`,
+    );
   }
 
   log.info("[operator:tick] === tick complete ===");

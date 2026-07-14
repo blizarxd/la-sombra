@@ -58,6 +58,13 @@ export function dayKeyTz(d: Date | number): string {
   }).format(date);
 }
 
+/** Hour (0-23) of a timestamp in the project timezone (UTC-4) — the daily-cycle cut fires by this. */
+export function hourInAppTz(d: Date | number = new Date()): number {
+  const date = typeof d === "number" ? new Date(d) : d;
+  const hour = new Intl.DateTimeFormat("en-US", { timeZone: APP_TZ, hour: "2-digit", hour12: false }).format(date);
+  return Number(hour) % 24; // "24" at midnight in some locales/ICU versions
+}
+
 /** Short human label (e.g. "13 jul") for a YYYY-MM-DD day key, in Spanish. */
 export function dayLabel(dayKey: string): string {
   const [y, m, d] = dayKey.split("-").map(Number);
