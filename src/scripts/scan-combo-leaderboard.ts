@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { walletProfiles } from "@/db/schema";
+import { leaderboardScans, walletProfiles } from "@/db/schema";
 import { fetchComboLeaderboard, fetchProfileProxyWallet, isRealAddress } from "@/lib/adapters";
 import { dayKeyTz } from "@/lib/format";
 import { newId } from "@/lib/ids";
@@ -30,6 +30,10 @@ runScript("scan:combo-leaderboard", async (db) => {
   const found = new Map<string, Found>();
   let unresolved = 0;
   let profileFetches = 0;
+  // Per-period diagnostics so /combos can SHOW whether the scrape works from
+  // this host (Cloudflare challenges the polymarket.com web frontend from some
+  // datacenter IPs even though the JSON APIs answer fine).
+  const periodStatus: Record<string, { rows: number } | { error: string }> = {};
 
   for (const period of ["today", "yesterday"] as const) {
     let rows;
@@ -37,9 +41,12 @@ runScript("scan:combo-leaderboard", async (db) => {
       rows = await fetchComboLeaderboard(period);
     } catch (err) {
       // A broken scrape is real information — log it loudly and keep the other period.
-      log.error(`combo leaderboard (${period}) failed: ${err instanceof Error ? err.message : err}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      log.error(`combo leaderboard (${period}) failed: ${msg}`);
+      periodStatus[period] = { error: msg.slice(0, 300) };
       continue;
     }
+    periodStatus[period] = { rows: rows.length };
     log.info(`combo leaderboard (${period}): ${rows.length} rows`);
     for (const row of rows) {
       if (Date.now() > deadline) {
@@ -107,4 +114,24 @@ runScript("scan:combo-leaderboard", async (db) => {
     created++;
   }
   log.info(`combo sourcing: ${created} new wallets queued, ${updated} existing tagged/refreshed`);
+
+  // Always record a scan row (even a total failure) so /combos can show whether
+  // the leaderboard scrape actually works from this host.
+  db.insert(leaderboardScans)
+    .values({
+      id: newId(),
+      source: "combo-cup",
+      scannedAt: now,
+      walletCount: found.size,
+      lookbackDays: 0,
+      rawSummaryJson: JSON.stringify({
+        periods: periodStatus,
+        resolved: found.size,
+        unresolved,
+        profileFetches,
+        created,
+        updated,
+      }),
+    })
+    .run();
 });

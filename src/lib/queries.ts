@@ -4,6 +4,7 @@ import {
   aiAnalyses,
   dailyReports,
   decisionJournal,
+  leaderboardScans,
   marketSnapshots,
   observedTrades,
   outcomeReviews,
@@ -500,6 +501,54 @@ export function getCryptoBookStats(db: Db) {
     cryptoWallets,
     cryptoRuleVersion: cryptoRuleSet?.version ?? null,
     cryptoRuleChanges,
+  };
+}
+
+/**
+ * Diagnostics for the last Combo Cup leaderboard scrape: did it work from this
+ * host? Cloudflare challenges polymarket.com's web frontend from some
+ * datacenter IPs (the JSON APIs answer fine), so this surfaces whether the
+ * scrape is returning rows or being blocked. null until the scan runs once.
+ */
+export function getComboScanStatus(db: Db) {
+  const row = db
+    .select()
+    .from(leaderboardScans)
+    .where(eq(leaderboardScans.source, "combo-cup"))
+    .orderBy(desc(leaderboardScans.scannedAt))
+    .limit(1)
+    .get();
+  if (!row) return null;
+  let detail: {
+    periods?: Record<string, { rows: number } | { error: string }>;
+    resolved?: number;
+    unresolved?: number;
+    profileFetches?: number;
+    created?: number;
+    updated?: number;
+  } = {};
+  try {
+    detail = JSON.parse(row.rawSummaryJson);
+  } catch {
+    detail = {};
+  }
+  const periods = detail.periods ?? {};
+  const totalRows = Object.values(periods).reduce((a, p) => a + ("rows" in p ? p.rows : 0), 0);
+  const errors = Object.entries(periods)
+    .filter(([, p]) => "error" in p)
+    .map(([name, p]) => `${name}: ${(p as { error: string }).error}`);
+  // Blocked = the scrape returned zero usable rows across every period (a
+  // Cloudflare challenge parses to 0 rows, which fetchComboLeaderboard reports
+  // as an error). Working = at least one period returned rows.
+  const ok = totalRows > 0;
+  return {
+    scannedAt: row.scannedAt,
+    walletCount: row.walletCount,
+    totalRows,
+    ok,
+    errors,
+    resolved: detail.resolved ?? row.walletCount,
+    unresolved: detail.unresolved ?? 0,
   };
 }
 

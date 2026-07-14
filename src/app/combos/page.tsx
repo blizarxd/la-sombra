@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getDb } from "@/db/client";
-import { getComboBookStats, getRealizedPnlSeries } from "@/lib/queries";
+import { getComboBookStats, getComboScanStatus, getRealizedPnlSeries } from "@/lib/queries";
 import { money, pct, shortAddr, when } from "@/lib/format";
 import { Card, Empty, PnlText, Stat, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
@@ -11,6 +11,7 @@ export const dynamic = "force-dynamic";
 export default function CombosPage() {
   const db = getDb();
   const combo = getComboBookStats(db);
+  const scan = getComboScanStatus(db);
   const realizedSeries = getRealizedPnlSeries(db, "combo");
   const pnlTone = combo.realizedPnl > 0 ? "profit" : combo.realizedPnl < 0 ? "loss" : "neutral";
 
@@ -56,6 +57,47 @@ export default function CombosPage() {
           hint={`${combo.profiledCount} perfiladas de la Combo Cup · reglas v${combo.comboRuleVersion ?? "—"}`}
         />
       </div>
+
+      <Card title="Estado del scrape del leaderboard (diagnóstico)">
+        {scan === null ? (
+          <p className="text-sm text-mist">
+            El scraper del leaderboard aún no ha corrido en este servidor. Corre en el ciclo del operador; vuelve
+            tras el próximo tick.
+          </p>
+        ) : (
+          <div className="space-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              {scan.ok ? (
+                <span className="rounded-full border border-emerald-700 bg-emerald-950/40 px-2 py-0.5 text-xs text-profit">
+                  ✅ scrape OK
+                </span>
+              ) : (
+                <span className="rounded-full border border-rose-800 bg-rose-950/40 px-2 py-0.5 text-xs text-loss">
+                  ⛔ bloqueado / 0 filas
+                </span>
+              )}
+              <span className="text-mist">
+                {when(scan.scannedAt)} · leyó <b className="text-bright">{scan.totalRows}</b> filas del board ·
+                resolvió <b className="text-bright">{scan.resolved}</b> billeteras
+              </span>
+            </div>
+            {scan.errors.length > 0 ? (
+              <ul className="space-y-1 text-xs text-loss">
+                {scan.errors.map((e, i) => (
+                  <li key={i} className="font-mono">{e}</li>
+                ))}
+              </ul>
+            ) : null}
+            {!scan.ok ? (
+              <p className="text-xs text-mist">
+                0 filas casi siempre = Cloudflare está retando el frontend de polymarket.com desde la IP de este
+                servidor (las APIs JSON sí responden — por eso cripto/cazador sí pueblan). El código funciona; la
+                fuente es hostil a datacenters. Siguiente paso: enrutar solo este scrape por un proxy.
+              </p>
+            ) : null}
+          </div>
+        )}
+      </Card>
 
       {combo.comboRuleChanges.length > 0 ? (
         <Card title="Automejora del libro combo (cambios de reglas)">
