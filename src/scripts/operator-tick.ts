@@ -130,16 +130,16 @@ async function main() {
   // being permanently skipped once the other tag succeeded.
   const needCrypto = !hasSourceTag("crypto-market");
   const needFast = !hasSourceTag("fast-market");
-  const needCombo = !hasSourceTag("combo-cup");
-  if (needCrypto || needFast || needCombo) {
-    log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast}, combo=${needCombo})`);
+  if (needCrypto || needFast) {
+    log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast})`);
     if (needCrypto) step("scan-crypto-markets.ts");
     if (needFast) step("scan-fast-markets.ts");
-    if (needCombo) {
-      step("scan-combo-leaderboard.ts");
-      step("profile-combo-wallets.ts");
-    }
   }
+  // 🧩 Combo sourcing is DELIBERATELY NOT in the frequent bootstrap: the
+  // leaderboard scrape is slow (dozens of profile fetches) and running it every
+  // tick risks blowing past the scheduler watchdog and starving the core loop.
+  // It runs only in the daily cycle below. combo-tick (fast) still runs every
+  // frequent tick to copy/settle from whatever wallets are already sourced.
   // Keep draining the freshly-mined queue every tick (a modest batch, gentle on
   // the API) until every sourced wallet has a profile — the desks and the trade
   // book depend on those profiles, and waiting for the daily cycle starved them.

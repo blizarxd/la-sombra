@@ -17,13 +17,19 @@ import { runScript } from "./_runner";
  * SAFETY: read-only discovery (HTML scrape + profile pages). No trades, no keys.
  */
 
+// Hard budget so this scrape can NEVER stall the operator tick / watchdog.
+const TIME_BUDGET_MS = 4 * 60 * 1000; // whole scan aborts cleanly past this
+const MAX_PROFILE_FETCHES = 30; // most rows embed the address; only some need a profile page
+
 runScript("scan:combo-leaderboard", async (db) => {
   const now = new Date();
   const today = dayKeyTz(now);
+  const deadline = now.getTime() + TIME_BUDGET_MS;
 
   type Found = { address: string; username: string; rank: number; payoutUsd: number | null };
   const found = new Map<string, Found>();
   let unresolved = 0;
+  let profileFetches = 0;
 
   for (const period of ["today", "yesterday"] as const) {
     let rows;
@@ -36,8 +42,15 @@ runScript("scan:combo-leaderboard", async (db) => {
     }
     log.info(`combo leaderboard (${period}): ${rows.length} rows`);
     for (const row of rows) {
+      if (Date.now() > deadline) {
+        log.warn("combo scan hit its time budget — stopping early (rest picked up next daily cycle)");
+        break;
+      }
       let address = row.address;
-      if (!address && row.profilePath) {
+      // Resolve username-only rows via the profile page, but bound how many —
+      // an unbounded run of profile fetches is what ballooned to minutes.
+      if (!address && row.profilePath && profileFetches < MAX_PROFILE_FETCHES) {
+        profileFetches++;
         try {
           address = await fetchProfileProxyWallet(row.profilePath);
         } catch (err) {
@@ -54,7 +67,7 @@ runScript("scan:combo-leaderboard", async (db) => {
       }
     }
   }
-  log.info(`combo board wallets resolved: ${found.size} (${unresolved} unresolved handles)`);
+  log.info(`combo board wallets resolved: ${found.size} (${unresolved} unresolved, ${profileFetches} profile fetches)`);
 
   let created = 0;
   let updated = 0;

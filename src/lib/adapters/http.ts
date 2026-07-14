@@ -1,11 +1,23 @@
-import { Agent, fetch as undiciFetch } from "undici";
 import { AdapterError } from "./types";
 
 // polymarket.com (the WEB frontend, not the APIs) answers with >16KB of
 // response headers, which overflows Node fetch's default header budget
-// (UND_ERR_HEADERS_OVERFLOW, seen live 2026-07-13). A dedicated undici agent
-// with a bigger header allowance fixes it; GET-only like everything here.
-const htmlAgent = new Agent({ maxHeaderSize: 64 * 1024 });
+// (UND_ERR_HEADERS_OVERFLOW, seen live 2026-07-13). We fix it with an undici
+// Agent that allows a bigger header — but undici is loaded LAZILY, and ONLY by
+// the HTML scraper. It must NEVER be imported at module load: this file is the
+// single network entry point for the ENTIRE adapter layer, so a bad/missing
+// undici here would crash monitor/score/every core script on import. The core
+// bot must not depend on a combo-book-only library.
+let htmlAgentPromise: Promise<{ fetch: typeof fetch; dispatcher: unknown }> | null = null;
+function getHtmlFetcher(): Promise<{ fetch: typeof fetch; dispatcher: unknown }> {
+  if (!htmlAgentPromise) {
+    htmlAgentPromise = import("undici")
+      .then((u) => ({ fetch: u.fetch as unknown as typeof fetch, dispatcher: new u.Agent({ maxHeaderSize: 64 * 1024 }) }))
+      // undici unavailable? fall back to global fetch (works unless headers overflow).
+      .catch(() => ({ fetch, dispatcher: undefined }));
+  }
+  return htmlAgentPromise;
+}
 
 /**
  * The ONLY network entry point for market-data adapters.
@@ -47,11 +59,12 @@ export async function httpGet(source: string, url: string, timeoutMs = 20000): P
  * httpGet — scraping is still read-only research.
  */
 export async function httpGetText(source: string, url: string, timeoutMs = 20000): Promise<string> {
+  const { fetch: htmlFetch, dispatcher } = await getHtmlFetcher();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res: Awaited<ReturnType<typeof undiciFetch>>;
+  let res: Response;
   try {
-    res = await undiciFetch(url, {
+    res = await htmlFetch(url, {
       method: "GET", // read-only, always
       headers: {
         Accept: "text/html,application/xhtml+xml",
@@ -59,9 +72,10 @@ export async function httpGetText(source: string, url: string, timeoutMs = 20000
         // table to it (verified live 2026-07-13).
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) la-sombra-research (paper-only)",
       },
-      dispatcher: htmlAgent,
+      // `dispatcher` is an undici-only option; harmless when it's undefined.
+      ...(dispatcher ? { dispatcher } : {}),
       signal: controller.signal,
-    });
+    } as RequestInit);
   } catch (err) {
     clearTimeout(timer);
     const msg = err instanceof Error ? err.message : String(err);
