@@ -24,6 +24,24 @@ import { projectOpenByWindow } from "./projection";
 
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
+/**
+ * SQLite caps the number of host parameters per statement at 32766. An
+ * `inArray(col, ids)` with a longer id list throws "too many SQL variables"
+ * (it took down Resumen + Rendimiento once the decision journal grew past that).
+ * This batches the ids so an arbitrarily large list never overflows.
+ */
+export const SQLITE_VAR_LIMIT = 20000; // comfortably under 32766
+export function selectByIdsChunked<T>(ids: string[], run: (batch: string[]) => T[]): T[] {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  if (unique.length <= SQLITE_VAR_LIMIT) return run(unique);
+  const out: T[] = [];
+  for (let i = 0; i < unique.length; i += SQLITE_VAR_LIMIT) {
+    out.push(...run(unique.slice(i, i + SQLITE_VAR_LIMIT)));
+  }
+  return out;
+}
+
 export function getOverviewStats(db: Db) {
   // Core ledger only — the live experiment keeps its own books (see getLiveStats).
   const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "core")).all();
@@ -125,9 +143,9 @@ export function getDecisionOutcomes(db: Db): DecisionOutcomeRow[] {
   const reviews = db.select().from(outcomeReviews).all();
   const reviewByDecision = new Map(reviews.map((r) => [r.decisionJournalId, r]));
   const observedIds = decisions.map((d) => d.observedTradeId);
-  const observed = observedIds.length
-    ? db.select().from(observedTrades).where(inArray(observedTrades.id, observedIds)).all()
-    : [];
+  const observed = selectByIdsChunked(observedIds, (batch) =>
+    db.select().from(observedTrades).where(inArray(observedTrades.id, batch)).all(),
+  );
   const observedById = new Map(observed.map((o) => [o.id, o]));
 
   return decisions.map((d) => {
@@ -182,9 +200,9 @@ export function getSkipAutopsy(db: Db) {
   const reviews = db.select().from(outcomeReviews).all();
   const reviewByDecision = new Map(reviews.map((r) => [r.decisionJournalId, r]));
   const observedIds = decisions.map((d) => d.observedTradeId);
-  const observed = observedIds.length
-    ? db.select().from(observedTrades).where(inArray(observedTrades.id, observedIds)).all()
-    : [];
+  const observed = selectByIdsChunked(observedIds, (batch) =>
+    db.select().from(observedTrades).where(inArray(observedTrades.id, batch)).all(),
+  );
   const observedById = new Map(observed.map((o) => [o.id, o]));
 
   let reviewedSignals = 0; // signals that actually feed the table: gate + known outcome
