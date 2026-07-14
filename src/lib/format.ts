@@ -65,6 +65,14 @@ export function hourInAppTz(d: Date | number = new Date()): number {
   return Number(hour) % 24; // "24" at midnight in some locales/ICU versions
 }
 
+/** Day of week (0=Sunday … 6=Saturday) of a timestamp in the project timezone (UTC-4). */
+export function weekdayInAppTz(d: Date | number = new Date()): number {
+  const date = typeof d === "number" ? new Date(d) : d;
+  const short = new Intl.DateTimeFormat("en-US", { timeZone: APP_TZ, weekday: "short" }).format(date);
+  const idx = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(short);
+  return idx === -1 ? date.getUTCDay() : idx;
+}
+
 /** Short human label (e.g. "13 jul") for a YYYY-MM-DD day key, in Spanish. */
 export function dayLabel(dayKey: string): string {
   const [y, m, d] = dayKey.split("-").map(Number);

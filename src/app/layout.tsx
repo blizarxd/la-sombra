@@ -20,6 +20,7 @@ const nav = [
   { href: "/cazador", label: "🎯 Cazador" },
   { href: "/journal", label: "Diario de decisiones" },
   { href: "/performance", label: "Rendimiento" },
+  { href: "/matriz", label: "🔬 Matriz" },
   { href: "/rules", label: "Reglas" },
   { href: "/recomendaciones", label: "🧠 Recomendaciones" },
   { href: "/reports", label: "Reportes" },

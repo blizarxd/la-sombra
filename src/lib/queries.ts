@@ -24,6 +24,7 @@ import {
 import { categorizeMarket, type CategoryKey } from "./category";
 import { dayKeyTz } from "./format";
 import { projectOpenByWindow } from "./projection";
+import { buildAllMatrices, type SettledTrade } from "./slices";
 
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
@@ -877,6 +878,29 @@ export function getCategoryPerformance(db: Db) {
   }
 
   return { tracks: [...tracks], categories, bestPerArm };
+}
+
+/**
+ * Slice matrices: hour-block / entry-band / weekday performance, per book.
+ *
+ * Recomputed from scratch on every call — there is no materialized table, so the
+ * dashboard always shows the DB as it stands right now. Cheap enough: it is one
+ * scan over settled paper trades (a few thousand rows).
+ */
+export function getSliceMatrices(db: Db) {
+  const rows = db
+    .select({
+      track: paperTrades.track,
+      entryPrice: paperTrades.entryPrice,
+      simulatedPositionSize: paperTrades.simulatedPositionSize,
+      realizedPnl: paperTrades.realizedPnl,
+      openedAt: paperTrades.openedAt,
+    })
+    .from(paperTrades)
+    .where(ne(paperTrades.status, "open"))
+    .all();
+
+  return buildAllMatrices(rows as SettledTrade[]);
 }
 
 /**

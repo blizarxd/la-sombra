@@ -15,9 +15,11 @@ import {
   getLiveStats,
   getOverviewStats,
   getSkipAutopsy,
+  getSliceMatrices,
   getTradeStats,
   getWalletPaperPerformance,
 } from "@/lib/queries";
+import { summarizeMatrices } from "@/lib/slices";
 import {
   applyRuleChanges,
   clampRuleValue,
@@ -258,6 +260,10 @@ function gatherEvidence(db: Db) {
       lastRefreshedAt: elite.lastRefreshedAt,
     },
     ledgerComparison: ledgers,
+    // The slice matrices (hour block / entry band / weekday, per book). Only
+    // cells with enough sample are included. These are HYPOTHESES, never rules:
+    // see the "Matrices" section of the system prompt.
+    sliceMatrices: summarizeMatrices(getSliceMatrices(db)),
     walletPaperPerformance: walletPerf.slice(0, 12),
     // Trading style of the tracked wallets: do they hold to resolution or
     // trade the odds (sell early)? Exits are copied in paper since v0005.
@@ -318,7 +324,13 @@ Reglas para recomendaciones:
 - AUTO-APLICAR (rule_key + proposed_value) SOLO es posible en nivel "bajo" Y scope "core" o "live" Y usando una clave en tunableKeys — cualquier otra combinación (incluida trade/crypto/combo, o core/live con una clave fuera de tunableKeys) queda como recomendación para el humano, aunque la marques "bajo". Esto es a propósito: trade y crypto ya tienen su propio afinador determinista dueño de esas palancas (evita la colisión que pasó el 2026-07-14 con maxEntryPrice en core). Respeta ruleBounds. Nunca propongas saltos grandes.
 - elite no tiene rule_key posible (no tiene reglas propias) — tus recomendaciones sobre elite son siempre sobre la política del roster (tamaño, ventana de 7 días, qué brazos alimentan) o si el experimento está funcionando, nunca un ajuste de regla.
 - Para "medio"/"alto" no hace falta rule_key: describe la recomendación para que el humano decida.
-- Todo en español. No inventes datos que no estén en la evidencia.`;
+- Todo en español. No inventes datos que no estén en la evidencia.
+
+Matrices (sliceMatrices) — franja horaria, banda de entrada y día de la semana, por libro:
+- Son HIPÓTESIS, no reglas. Estos son los MISMOS trades cortados de varias formas: con decenas de celdas, alguna se ve fantástica por puro azar. Nunca recomiendes nivel "bajo" (auto-aplicable) basándote SOLO en una celda de la matriz.
+- Solo te pasamos las celdas que superan el mínimo de muestra; aun así, una celda con n=6 no es evidencia fuerte. Pondera por ROI y por n, no por PnL bruto (los libros apuestan tamaños distintos).
+- Si ves un patrón que se repite en VARIOS libros a la vez (p.ej. la misma banda de entrada rinde en core y en live), eso sí es señal: propónlo como recomendación "medio" y pide forward-test antes de convertirlo en regla.
+- Si un patrón aparece en un solo libro y en una sola celda, dilo como observación a vigilar, con nivel "medio" como máximo y diciendo explícitamente que puede ser ruido.`;
 
 function buildUserPrompt(evidence: ReturnType<typeof gatherEvidence>): string {
   return (
