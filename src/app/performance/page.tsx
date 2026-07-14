@@ -41,6 +41,7 @@ const TRACK_LABELS: Record<string, string> = {
   trade: "Cuota",
   crypto: "Cripto",
   combo: "Combos",
+  elite: "La Crema",
 };
 
 export default function PerformancePage() {

@@ -52,6 +52,7 @@ const badgeTones: Record<string, string> = {
   live: "bg-amber-950 text-watch border-amber-800",
   trade: "bg-violet-950 text-violet-300 border-violet-800",
   crypto: "bg-orange-950 text-orange-300 border-orange-800",
+  elite: "bg-yellow-950 text-yellow-300 border-yellow-800",
 };
 
 const badgeLabels: Record<string, string> = {
@@ -76,6 +77,7 @@ const badgeLabels: Record<string, string> = {
   trade: "cuota",
   crypto: "cripto",
   combo: "combo",
+  elite: "la crema",
 };
 
 export function Badge({ value }: { value: string }) {

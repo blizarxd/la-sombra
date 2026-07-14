@@ -212,7 +212,7 @@ export const paperTrades = sqliteTable(
     // pre-game strategy; "live" = the parallel in-play experiment; "trade" =
     // the quota-trader book (copies buy->sell round-trips of odds-scalpers).
     // The ledgers NEVER mix: every core stat filters track='core'.
-    track: text("track", { enum: ["core", "live", "trade", "crypto", "combo"] })
+    track: text("track", { enum: ["core", "live", "trade", "crypto", "combo", "elite"] })
       .notNull()
       .default("core"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
@@ -343,6 +343,31 @@ export const dailyReports = sqliteTable(
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (t) => [uniqueIndex("daily_reports_date_unique").on(t.date)],
+);
+
+// ---------------------------------------------------------------------------
+// 🏆 Elite roster ("la crema") — the top-10-by-weekly-realized-PnL wallets per
+// arm (core/live/trade/crypto), refreshed once a day. NOT a strategy of its
+// own: it has no entry rules. It mirrors whatever an arm ALREADY decided to
+// copy (that decision already passed that arm's own gates), adding exactly
+// one extra filter — "is this wallet currently a confirmed weekly winner in
+// its arm?" Wiped and rebuilt each refresh (see update-elite-roster.ts).
+// ---------------------------------------------------------------------------
+export const eliteRoster = sqliteTable(
+  "elite_roster",
+  {
+    id: text("id").primaryKey(),
+    arm: text("arm", { enum: ["core", "live", "trade", "crypto"] }).notNull(),
+    walletAddress: text("wallet_address").notNull(),
+    rank: integer("rank").notNull(), // 1 = best this week
+    weeklyPnl: real("weekly_pnl").notNull(),
+    weeklyTradeCount: integer("weekly_trade_count").notNull(),
+    computedAt: integer("computed_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [
+    index("elite_roster_arm_idx").on(t.arm),
+    uniqueIndex("elite_roster_arm_wallet_unique").on(t.arm, t.walletAddress),
+  ],
 );
 
 // ---------------------------------------------------------------------------

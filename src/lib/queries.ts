@@ -4,6 +4,7 @@ import {
   aiAnalyses,
   dailyReports,
   decisionJournal,
+  eliteRoster,
   leaderboardScans,
   marketSnapshots,
   observedTrades,
@@ -84,7 +85,7 @@ export function getOverviewStats(db: Db) {
 }
 
 /** Cumulative paper PnL series from pnl snapshots + resolutions (for the chart). */
-export function getPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" = "core"): { t: number; pnl: number }[] {
+export function getPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" | "elite" = "core"): { t: number; pnl: number }[] {
   const snaps = db
     .select({
       paperTradeId: pnlSnapshots.paperTradeId,
@@ -114,7 +115,7 @@ export function getPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto"
  * resolves or is exit-closed — the honest scorecard, free of the open-position
  * mark-to-market noise that dominates getPnlSeries.
  */
-export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" = "core"): { t: number; pnl: number }[] {
+export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" | "elite" = "core"): { t: number; pnl: number }[] {
   const settled = db
     .select({
       realizedPnl: paperTrades.realizedPnl,
@@ -246,7 +247,7 @@ export function getLatestSnapshots(db: Db, marketIds: string[]) {
 }
 
 /** Per-wallet paper performance (realized + unrealized) for a given ledger. */
-export function getWalletPaperPerformance(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" = "core") {
+export function getWalletPaperPerformance(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" | "elite" = "core") {
   const rows = db
     .select({
       walletAddress: paperTrades.walletAddress,
@@ -552,6 +553,41 @@ export function getComboScanStatus(db: Db) {
   };
 }
 
+/**
+ * Everything the 🏆 Elite book ("la crema") needs. Elite has no rules of its
+ * own — it mirrors whichever arm (core/live/trade/crypto) already decided to
+ * copy a trade, filtered to that arm's current weekly top-10. This returns
+ * both the mirrored ledger AND the current roster per arm, so the page can
+ * show WHO qualifies right now, not just what got copied.
+ */
+export function getEliteBookStats(db: Db) {
+  const trades = db.select().from(paperTrades).where(eq(paperTrades.track, "elite")).orderBy(desc(paperTrades.openedAt)).all();
+  const open = trades.filter((t) => t.status === "open");
+  const settled = trades.filter((t) => t.status !== "open");
+  const realized = settled.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+  const unrealized = open.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
+  const wins = settled.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+
+  const roster = db.select().from(eliteRoster).orderBy(eliteRoster.arm, eliteRoster.rank).all();
+  const rosterByArm = new Map<string, typeof roster>();
+  for (const r of roster) rosterByArm.set(r.arm, [...(rosterByArm.get(r.arm) ?? []), r]);
+  const lastRefreshedAt = roster.length ? roster.reduce((a, r) => (r.computedAt > a ? r.computedAt : a), roster[0].computedAt) : null;
+
+  return {
+    trades,
+    openCount: open.length,
+    settledCount: settled.length,
+    totalPnl: Math.round((realized + unrealized) * 100) / 100,
+    realizedPnl: Math.round(realized * 100) / 100,
+    unrealizedPnl: Math.round(unrealized * 100) / 100,
+    winRate: settled.length ? wins / settled.length : null,
+    roster,
+    rosterByArm,
+    rosterSize: roster.length,
+    lastRefreshedAt,
+  };
+}
+
 /** Everything the 🧩 Combo book needs — combo ledger only, never the others. */
 export function getComboBookStats(db: Db) {
   const trades = db
@@ -730,7 +766,7 @@ export function getSourcingDesk(db: Db, sourceTag: string) {
  * — open positions' mark-to-market isn't money generated yet. Newest day first.
  */
 export function getDailyPnlByBook(db: Db) {
-  const tracks = ["core", "live", "trade", "crypto", "combo"] as const;
+  const tracks = ["core", "live", "trade", "crypto", "combo", "elite"] as const;
   const settled = db
     .select({
       track: paperTrades.track,
@@ -797,7 +833,7 @@ export function getDailyPnlByBook(db: Db) {
  * distribution of already-settled copies + the recent daily copy rate. Lets the
  * window be chosen against how many open positions ("lung") is tolerable.
  */
-export function getResolutionWindowProjection(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" = "core") {
+export function getResolutionWindowProjection(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" | "elite" = "core") {
   const trades = db
     .select({
       status: paperTrades.status,

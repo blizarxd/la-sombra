@@ -1,7 +1,9 @@
 import { and, asc, eq } from "drizzle-orm";
-import { decisionJournal, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
+import type { Db } from "@/db/client";
+import { decisionJournal, eliteRoster, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
+import { ELITE_POSITION_SIZE } from "@/lib/elite";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { getControlSettings } from "@/lib/control";
@@ -11,6 +13,69 @@ import { getActiveRules } from "@/lib/rules";
 import { scoreTrade } from "@/lib/scoring/tradeScoring";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
 import { argValue, runScript } from "./_runner";
+
+/**
+ * 🏆 Elite ("la crema") mirror: if the wallet that JUST got copied by `arm`
+ * is currently that arm's weekly top-10 (elite_roster), ALSO open the same
+ * fill into the elite ledger. No entry rules of its own — the arm's own
+ * gates already decided this was worth copying; elite adds exactly one more
+ * filter (confirmed weekly winner) on top. Reuses the already-fetched book,
+ * so this costs no extra API call.
+ */
+async function maybeOpenEliteMirror(
+  db: Db,
+  params: {
+    arm: "core" | "live" | "trade" | "crypto";
+    journalId: string;
+    walletAddress: string;
+    marketId: string;
+    tokenId: string | null;
+    marketQuestion: string | null;
+    outcome: string | null;
+    book: OrderBook;
+    now: Date;
+  },
+): Promise<void> {
+  const onRoster = db
+    .select({ id: eliteRoster.id })
+    .from(eliteRoster)
+    .where(and(eq(eliteRoster.arm, params.arm), eq(eliteRoster.walletAddress, params.walletAddress)))
+    .get();
+  if (!onRoster) return;
+
+  const dupConds = [
+    eq(paperTrades.status, "open"),
+    eq(paperTrades.track, "elite"),
+    eq(paperTrades.marketId, params.marketId),
+  ];
+  if (params.outcome) dupConds.push(eq(paperTrades.outcome, params.outcome));
+  const already = db.select({ id: paperTrades.id }).from(paperTrades).where(and(...dupConds)).get();
+  if (already) return;
+
+  const opened = openPaperTrade(db, {
+    decisionJournalId: params.journalId,
+    walletAddress: params.walletAddress,
+    marketId: params.marketId,
+    tokenId: params.tokenId,
+    marketQuestion: params.marketQuestion,
+    outcome: params.outcome,
+    usdSize: ELITE_POSITION_SIZE,
+    book: params.book,
+    track: "elite",
+    now: params.now,
+  });
+  if (opened.opened) {
+    log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} copy of ${params.arm}'s top-10 wallet ${params.walletAddress.slice(0, 10)}…`);
+    if (telegramConfigured()) {
+      const q = escapeHtml((params.marketQuestion ?? params.marketId).slice(0, 120));
+      await sendTelegramMessage(
+        `🏆 <b>LA CREMA — copia en papel</b>\n${q}\n` +
+          `Billetera ${params.walletAddress.slice(0, 10)}… (top-10 semanal de ${params.arm}) · entrada $${ELITE_POSITION_SIZE.toFixed(2)}\n` +
+          `(nos copiamos a nosotros mismos — solo lo mejor de lo mejor, libro aparte)`,
+      );
+    }
+  }
+}
 
 /**
  * Steps 9-10 of the loop: score each newly observed trade against current
@@ -233,6 +298,17 @@ runScript("score:trades", async (db) => {
               `Entrada $${(result.simulatedPositionSize ?? 0).toFixed(2)} a ${fillPrice}`,
           );
         }
+        await maybeOpenEliteMirror(db, {
+          arm: "core",
+          journalId,
+          walletAddress: obs.walletAddress,
+          marketId: obs.marketId,
+          tokenId: obs.tokenId,
+          marketQuestion: market?.question ?? obs.marketQuestion,
+          outcome: obs.outcome,
+          book,
+          now,
+        });
       } else {
         risks.push(`UNFILLABLE: ${open.fill.reason} — no paper trade opened (fill-rate realism)`);
         counts.unfillable++;
@@ -292,6 +368,17 @@ runScript("score:trades", async (db) => {
                 `(libro paralelo — no toca la estrategia principal)`,
             );
           }
+          await maybeOpenEliteMirror(db, {
+            arm: "live",
+            journalId,
+            walletAddress: obs.walletAddress,
+            marketId: obs.marketId,
+            tokenId: obs.tokenId,
+            marketQuestion: market?.question ?? obs.marketQuestion,
+            outcome: obs.outcome,
+            book,
+            now,
+          });
         }
       }
     }
@@ -356,6 +443,17 @@ runScript("score:trades", async (db) => {
                 `(cerramos cuando la billetera venda — libro aparte)`,
             );
           }
+          await maybeOpenEliteMirror(db, {
+            arm: "trade",
+            journalId,
+            walletAddress: obs.walletAddress,
+            marketId: obs.marketId,
+            tokenId: obs.tokenId,
+            marketQuestion: market?.question ?? obs.marketQuestion,
+            outcome: obs.outcome,
+            book,
+            now,
+          });
         }
       }
     }
@@ -416,6 +514,17 @@ runScript("score:trades", async (db) => {
                 `(banda 55–75¢ · cerramos cuando la billetera venda — libro aparte)`,
             );
           }
+          await maybeOpenEliteMirror(db, {
+            arm: "crypto",
+            journalId,
+            walletAddress: obs.walletAddress,
+            marketId: obs.marketId,
+            tokenId: obs.tokenId,
+            marketQuestion: market?.question ?? obs.marketQuestion,
+            outcome: obs.outcome,
+            book,
+            now,
+          });
         }
       }
     }

@@ -78,6 +78,13 @@
       "when": 1783984691799,
       "tag": "0010_combo_book",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1784038311605,
+      "tag": "0011_elite_roster",
+      "breakpoints": true
     }
   ]
 }

@@ -88,8 +88,8 @@ export interface OpenPaperTradeInput {
   outcome: string | null;
   usdSize: number;
   book: OrderBook;
-  /** Ledger: "core" (main strategy), "live" (in-play experiment), "trade" (quota-scalper book), "crypto" (crypto book) or "combo" (parlay book). */
-  track?: "core" | "live" | "trade" | "crypto" | "combo";
+  /** Ledger: "core" (main strategy), "live" (in-play experiment), "trade" (quota-scalper book), "crypto" (crypto book), "combo" (parlay book) or "elite" (top-10-weekly mirror). */
+  track?: "core" | "live" | "trade" | "crypto" | "combo" | "elite";
   now?: Date;
 }
 

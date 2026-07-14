@@ -33,7 +33,7 @@ type State = { lastDailyRun?: string; lastCycleToken?: string };
 // regardless of whether it already ran today. Used to push a fresh AI "cut"
 // right after a meaningful change (e.g. removing the core stop-loss). It fires
 // exactly once per new token because the tick records it in operator-state.json.
-const DAILY_CYCLE_TOKEN = "2026-07-14-combo-scan-cause-detail";
+const DAILY_CYCLE_TOKEN = "2026-07-14-elite-roster-launch";
 
 function readState(): State {
   try {
@@ -166,6 +166,7 @@ async function main() {
     step("scan-combo-leaderboard.ts"); // 🧩 mine the Combo Cup board for combo bettors
     step("profile-combo-wallets.ts"); // 🧩 combo cashflow scorecards (eligibility gate)
     step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
+    step("update-elite-roster.ts"); // 🏆 refresh "la crema" — top-10-weekly per arm
     step("update-rules.ts"); // self-improve CORE strategy on core evidence
     step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)
     step("update-rules-trade.ts"); // self-improve TRADE book (quota-scalpers) on its own evidence
