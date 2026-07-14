@@ -21,6 +21,7 @@ import {
   hypotheticalPnl,
   type DecisionOutcomeRow,
 } from "./benchmarks";
+import { categorizeMarket, type CategoryKey } from "./category";
 import { dayKeyTz } from "./format";
 import { projectOpenByWindow } from "./projection";
 
@@ -262,27 +263,6 @@ export function getWalletPaperPerformance(db: Db, track: "core" | "live" | "trad
   return rows.map((r) => ({
     walletAddress: r.walletAddress,
     totalPnl: Math.round((r.realized + r.unrealized) * 100) / 100,
-    tradeCount: r.count,
-  }));
-}
-
-/** Per-category paper performance from resolved trades joined via journal->observed. */
-export function getCategoryPerformance(db: Db) {
-  const rows = db
-    .select({
-      category: observedTrades.marketCategory,
-      pnl: sql<number>`coalesce(sum(coalesce(${paperTrades.realizedPnl}, ${paperTrades.unrealizedPnl}, 0)), 0)`,
-      count: sql<number>`count(*)`,
-    })
-    .from(paperTrades)
-    .innerJoin(decisionJournal, eq(paperTrades.decisionJournalId, decisionJournal.id))
-    .innerJoin(observedTrades, eq(decisionJournal.observedTradeId, observedTrades.id))
-    .where(eq(paperTrades.track, "core"))
-    .groupBy(observedTrades.marketCategory)
-    .all();
-  return rows.map((r) => ({
-    category: r.category ?? "Other",
-    totalPnl: Math.round(r.pnl * 100) / 100,
     tradeCount: r.count,
   }));
 }
@@ -825,6 +805,78 @@ export function getDailyPnlByBook(db: Db) {
   }
 
   return { tracks: [...tracks], days, totals, grandTotal: round(grand), grandCount };
+}
+
+/**
+ * Category performance per book — "does esports do better in live than in
+ * core?". Buckets every SETTLED paper trade by (track, derived category) and
+ * reports realized PnL / win rate / count. Category is DERIVED from the
+ * market question (see lib/category.ts — the API's own category field is
+ * ~98% null). Combo is excluded: a parlay's "first leg" category is a weak
+ * signal for a 2-32-leg bet, and the book is still near-empty.
+ */
+export function getCategoryPerformance(db: Db) {
+  const tracks = ["core", "live", "trade", "crypto", "elite"] as const;
+  const rows = db
+    .select({
+      track: paperTrades.track,
+      marketQuestion: paperTrades.marketQuestion,
+      realizedPnl: paperTrades.realizedPnl,
+    })
+    .from(paperTrades)
+    .where(ne(paperTrades.status, "open"))
+    .all();
+
+  type Cell = { pnl: number; count: number; wins: number };
+  const byTrackCat = new Map<string, Map<CategoryKey, Cell>>();
+  for (const t of rows) {
+    if (!(tracks as readonly string[]).includes(t.track)) continue;
+    const cat = categorizeMarket(t.marketQuestion);
+    const trackMap = byTrackCat.get(t.track) ?? new Map<CategoryKey, Cell>();
+    const cell = trackMap.get(cat) ?? { pnl: 0, count: 0, wins: 0 };
+    cell.pnl += t.realizedPnl ?? 0;
+    cell.count += 1;
+    if ((t.realizedPnl ?? 0) > 0) cell.wins++;
+    trackMap.set(cat, cell);
+    byTrackCat.set(t.track, trackMap);
+  }
+
+  const allCats = new Set<CategoryKey>();
+  for (const m of byTrackCat.values()) for (const c of m.keys()) allCats.add(c);
+
+  const round = (x: number) => Math.round(x * 100) / 100;
+  type ArmCell = { pnl: number; count: number; winRate: number | null } | null;
+  const categories = [...allCats]
+    .map((cat) => {
+      const byArm = {} as Record<(typeof tracks)[number], ArmCell>;
+      let totalPnl = 0;
+      for (const track of tracks) {
+        const cell = byTrackCat.get(track)?.get(cat);
+        if (cell) {
+          byArm[track] = { pnl: round(cell.pnl), count: cell.count, winRate: cell.count ? cell.wins / cell.count : null };
+          totalPnl += cell.pnl;
+        } else {
+          byArm[track] = null;
+        }
+      }
+      return { category: cat, byArm, totalPnl: round(totalPnl) };
+    })
+    .sort((a, b) => b.totalPnl - a.totalPnl);
+
+  // Best category per arm (min 3 settled — avoid crowning a 1-trade fluke).
+  const MIN_SAMPLE = 3;
+  const bestPerArm = {} as Record<(typeof tracks)[number], CategoryKey | null>;
+  for (const track of tracks) {
+    let best: { cat: CategoryKey; pnl: number } | null = null;
+    for (const row of categories) {
+      const cell = row.byArm[track];
+      if (!cell || cell.count < MIN_SAMPLE) continue;
+      if (!best || cell.pnl > best.pnl) best = { cat: row.category, pnl: cell.pnl };
+    }
+    bestPerArm[track] = best?.cat ?? null;
+  }
+
+  return { tracks: [...tracks], categories, bestPerArm };
 }
 
 /**

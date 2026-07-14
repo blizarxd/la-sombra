@@ -11,6 +11,7 @@ import {
   getSkipAutopsy,
   getWalletPaperPerformance,
 } from "@/lib/queries";
+import { CATEGORY_LABELS } from "@/lib/category";
 import { dayLabel, money, pct, shortAddr } from "@/lib/format";
 import Link from "next/link";
 import { Card, Empty, PnlText, Stat, Table, Td, Th } from "../components/ui";
@@ -54,7 +55,7 @@ export default function PerformancePage() {
   const realizedSeries = getRealizedPnlSeries(db);
   const bench = getBenchmarkSummary(db);
   const byWallet = getWalletPaperPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
-  const byCategory = getCategoryPerformance(db).sort((a, b) => b.totalPnl - a.totalPnl);
+  const byCategory = getCategoryPerformance(db);
   const fill = getFillRateStats(db);
   const inPlay = getInPlayPaperPerformance(db);
 
@@ -339,6 +340,57 @@ export default function PerformancePage() {
         )}
       </Card>
 
+      <Card title="Rendimiento por categoría y brazo (¿qué categoría rinde mejor en cada libro?)">
+        {byCategory.categories.length === 0 ? (
+          <Empty>Aún no hay trades liquidados.</Empty>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <thead>
+                <tr>
+                  <Th>Categoría</Th>
+                  {byCategory.tracks.map((tr) => (
+                    <Th key={tr} className="text-right">{TRACK_LABELS[tr] ?? tr}</Th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {byCategory.categories.map((row) => (
+                  <tr key={row.category}>
+                    <Td>{CATEGORY_LABELS[row.category]}</Td>
+                    {byCategory.tracks.map((tr) => {
+                      const cell = row.byArm[tr];
+                      const isBest = byCategory.bestPerArm[tr] === row.category;
+                      return (
+                        <Td key={tr} className={`text-right ${isBest ? "bg-emerald-950/30" : ""}`}>
+                          {cell ? (
+                            <>
+                              <PnlText value={cell.pnl} />
+                              <span className="ml-1 text-[10px] text-mist">
+                                ({cell.count}{cell.winRate !== null ? ` · ${pct(cell.winRate)}` : ""})
+                              </span>
+                              {isBest ? <span className="ml-1">🏆</span> : null}
+                            </>
+                          ) : (
+                            <span className="text-mist">—</span>
+                          )}
+                        </Td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            <div className="mt-3 text-xs text-mist">
+              PnL realizado por categoría (derivada del texto del mercado — el campo de categoría del API viene vacío
+              en ~98% de los trades). Entre paréntesis: trades liquidados y tasa de acierto. 🏆 marca la mejor
+              categoría de ESE brazo (mínimo 3 liquidados para evitar coronar un solo trade de suerte). Categorías
+              sin datos en un brazo muestran "—".
+            </div>
+          </div>
+        )}
+      </Card>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Rendimiento por billetera">
           {byWallet.length === 0 ? (
@@ -352,22 +404,6 @@ export default function PerformancePage() {
                   </Link>
                   <span>
                     {w.tradeCount} trades · <PnlText value={w.totalPnl} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
-        <Card title="Rendimiento por categoría">
-          {byCategory.length === 0 ? (
-            <Empty>Aún no hay trades en papel.</Empty>
-          ) : (
-            <ul className="space-y-2 text-sm">
-              {byCategory.map((c) => (
-                <li key={c.category} className="flex justify-between">
-                  <span>{c.category}</span>
-                  <span>
-                    {c.tradeCount} trades · <PnlText value={c.totalPnl} />
                   </span>
                 </li>
               ))}
