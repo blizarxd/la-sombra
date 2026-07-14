@@ -49,21 +49,26 @@ runScript("update:rules-trade", async (db) => {
     changes.push({ key, before, after: clamped, reason, evidence, expectedImprovement: expected });
   };
 
-  // 1) Overall scalp edge: tighten/loosen the wallet-quality gate.
+  // 1) Overall scalp edge: tighten/loosen spread tolerance.
+  // NOTE: this used to tune minWalletGlobalScore, but the trade book's copy
+  // gate is judged on the wallet's SWING record (isQuotaTraderEligible in
+  // score-trades.ts), which never reads minWalletGlobalScore — that lever was
+  // silently disconnected from real copy behavior (fixed 2026-07-14).
+  // maxSpread IS read by the copy gate, so it actually moves the outcome.
   if (winRate < 0.45) {
     propose(
-      "minWalletGlobalScore",
-      rules.minWalletGlobalScore,
-      rules.minWalletGlobalScore + 3,
+      "maxSpread",
+      rules.maxSpread,
+      rules.maxSpread - 0.005,
       `scalp copies win only ${(winRate * 100).toFixed(0)}% (<45%)`,
       `${rows.length} settled scalps`,
-      "copy only sharper quota-traders",
+      "avoid spread-tax losses on scalp copies",
     );
   } else if (winRate > 0.6 && rows.length >= 15) {
     propose(
-      "minWalletGlobalScore",
-      rules.minWalletGlobalScore,
-      rules.minWalletGlobalScore - 2,
+      "maxSpread",
+      rules.maxSpread,
+      rules.maxSpread + 0.005,
       `scalp copies win ${(winRate * 100).toFixed(0)}% — room to widen the net`,
       `${rows.length} settled scalps`,
       "capture more scalp edge",
@@ -81,6 +86,20 @@ runScript("update:rules-trade", async (db) => {
       "top-of-band scalp entries lose",
       `${expensive.length} scalps with entry > ${(rules.maxEntryPrice - 0.07).toFixed(2)} avg $${expensiveAvg!.toFixed(2)}`,
       "tighter scalp entry band",
+    );
+  }
+
+  // 3) Cheap lottery entries: if very-low-price scalp entries lose, raise minEntryPrice.
+  const cheap = rows.filter((r) => (r.entryPrice ?? 1) < rules.minEntryPrice + 0.08);
+  const cheapAvg = avg(cheap.map((r) => r.realizedPnl ?? 0));
+  if (cheap.length >= MIN_SAMPLES && (cheapAvg ?? 0) < 0) {
+    propose(
+      "minEntryPrice",
+      rules.minEntryPrice,
+      rules.minEntryPrice + 0.02,
+      "cheap scalp lottery entries lose",
+      `${cheap.length} scalps with entry < ${(rules.minEntryPrice + 0.08).toFixed(2)} avg $${cheapAvg!.toFixed(2)}`,
+      "skip scalp longshots",
     );
   }
 

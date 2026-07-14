@@ -169,6 +169,7 @@ async function main() {
     step("update-rules.ts"); // self-improve CORE strategy on core evidence
     step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)
     step("update-rules-trade.ts"); // self-improve TRADE book (quota-scalpers) on its own evidence
+    step("update-rules-crypto.ts"); // self-improve CRYPTO book on its own evidence
     step("ai-analyst.ts"); // expert AI layer: reasoning + recommendations + bounded auto-tuning
     step("report-daily.ts");
     writeState({ ...state, lastDailyRun: today, lastCycleToken: DAILY_CYCLE_TOKEN });

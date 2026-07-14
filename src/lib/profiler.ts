@@ -128,6 +128,27 @@ export function isQuotaTraderEligible(w: {
   return tradesOdds && enoughExits && winsSwings && profitable;
 }
 
+/**
+ * Eligibility for the ₿ Crypto book. EITHER a proven holder (score >= the
+ * book's own gate) OR a proven quota-trader (swing record) qualifies — fixed
+ * 2026-07-14 after verifying live that a pure holder-score gate filtered out
+ * 27 of 29 tracked crypto wallets: fast BTC/ETH Up-or-Down markets (~15min)
+ * mostly get round-tripped, not held to resolution, so the holder-score-only
+ * gate rejected exactly the wallets the crypto sourcing exists to find.
+ */
+export function isCryptoBookEligible(
+  w: {
+    globalScore: number | null;
+    tradingStyle: string | null;
+    swingPnl30d: number | null;
+    swingWinRate30d: number | null;
+    sellCount30d: number | null;
+  },
+  minGlobalScore: number,
+): boolean {
+  return (w.globalScore ?? 0) >= minGlobalScore || isQuotaTraderEligible(w);
+}
+
 export function buildResolvedTrades(
   trades: WalletTrade[],
   markets: Map<string, MarketInfo>,

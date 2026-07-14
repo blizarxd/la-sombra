@@ -6,7 +6,7 @@ import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { getControlSettings } from "@/lib/control";
 import { closePaperTrade, openPaperTrade } from "@/lib/paper/engine";
-import { isQuotaTraderEligible } from "@/lib/profiler";
+import { isCryptoBookEligible, isQuotaTraderEligible } from "@/lib/profiler";
 import { getActiveRules } from "@/lib/rules";
 import { scoreTrade } from "@/lib/scoring/tradeScoring";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
@@ -368,11 +368,16 @@ runScript("score:trades", async (db) => {
     // the wallet sells. Never touches core/live/trade stats.
     const isCryptoWallet = (wallet?.sources ?? "").includes("crypto-market");
     const cryptoDrift = book?.bestAsk != null ? Math.abs(book.bestAsk - obs.walletEntryPrice) : null;
+    // Eligibility: EITHER a proven holder OR a proven quota-trader — see
+    // isCryptoBookEligible for why (2026-07-14 fix).
+    const cryptoWalletProven = wallet
+      ? isCryptoBookEligible(wallet, cryptoRules.minWalletGlobalScore)
+      : false;
     if (
       isCryptoWallet &&
       obs.side === "BUY" &&
       book &&
-      (wallet?.globalScore ?? 0) >= cryptoRules.minWalletGlobalScore &&
+      cryptoWalletProven &&
       book.bestAsk !== null &&
       book.bestAsk >= cryptoRules.minEntryPrice &&
       book.bestAsk <= cryptoRules.maxEntryPrice &&
