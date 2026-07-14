@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
+import { CATEGORY_LABELS, categorizeMarket, type CategoryKey } from "@/lib/category";
 import { money, price, shortAddr, when } from "@/lib/format";
 import { Badge, Empty, PnlText, Table, Td, Th } from "./ui";
 
@@ -58,19 +59,43 @@ export function PaginatedTradesTable({
 }) {
   const [pageSize, setPageSize] = useState<number | "all">(20);
   const [page, setPage] = useState(0);
+  const [category, setCategory] = useState<CategoryKey | "all">("all");
+
+  // Derive each row's category once (from the market text — the API category is
+  // ~98% null). Build the filter options from the categories actually present,
+  // with a count, so the dropdown never offers an empty bucket.
+  const { rowCat, catCounts } = useMemo(() => {
+    const rowCat = new Map<string, CategoryKey>();
+    const catCounts = new Map<CategoryKey, number>();
+    for (const r of rows) {
+      const c = categorizeMarket(r.market);
+      rowCat.set(r.id, c);
+      catCounts.set(c, (catCounts.get(c) ?? 0) + 1);
+    }
+    return { rowCat, catCounts };
+  }, [rows]);
+
+  const presentCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
 
   if (rows.length === 0) {
     return <Empty>{emptyHint ?? "Aún no hay trades para mostrar."}</Empty>;
   }
 
-  const size = pageSize === "all" ? rows.length : pageSize;
-  const totalPages = Math.max(1, Math.ceil(rows.length / size));
+  const filtered = category === "all" ? rows : rows.filter((r) => rowCat.get(r.id) === category);
+
+  const size = pageSize === "all" ? filtered.length : pageSize;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / size));
   const clampedPage = Math.min(page, totalPages - 1);
   const start = clampedPage * size;
-  const slice = rows.slice(start, start + size);
+  const slice = filtered.slice(start, start + size);
 
   const setSize = (s: number | "all") => {
     setPageSize(s);
+    setPage(0);
+  };
+
+  const setCat = (c: CategoryKey | "all") => {
+    setCategory(c);
     setPage(0);
   };
 
@@ -121,6 +146,31 @@ export function PaginatedTradesTable({
 
   return (
     <div className="space-y-3">
+      {presentCats.length > 1 ? (
+        <div className="flex flex-wrap items-center gap-1 text-xs text-mist">
+          <span className="mr-1">Categoría:</span>
+          <button
+            onClick={() => setCat("all")}
+            className={`rounded-md border px-2 py-1 ${
+              category === "all" ? "border-accent bg-panel2 text-accent" : "border-edge text-mist hover:bg-panel2"
+            }`}
+          >
+            Todas ({rows.length})
+          </button>
+          {presentCats.map(([c, n]) => (
+            <button
+              key={c}
+              onClick={() => setCat(c)}
+              className={`rounded-md border px-2 py-1 ${
+                category === c ? "border-accent bg-panel2 text-accent" : "border-edge text-mist hover:bg-panel2"
+              }`}
+            >
+              {CATEGORY_LABELS[c]} ({n})
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-mist">
         <div className="flex items-center gap-1">
           <span className="mr-1">Por página:</span>
@@ -142,8 +192,9 @@ export function PaginatedTradesTable({
           })}
         </div>
         <div>
-          Mostrando <b className="text-bright">{start + 1}–{Math.min(start + size, rows.length)}</b> de{" "}
-          <b className="text-bright">{rows.length}</b>
+          Mostrando <b className="text-bright">{filtered.length === 0 ? 0 : start + 1}–{Math.min(start + size, filtered.length)}</b> de{" "}
+          <b className="text-bright">{filtered.length}</b>
+          {category !== "all" ? <span className="ml-1">({CATEGORY_LABELS[category]})</span> : null}
         </div>
       </div>
 
