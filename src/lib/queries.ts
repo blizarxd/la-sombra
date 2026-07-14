@@ -895,6 +895,7 @@ export function getSliceMatrices(db: Db) {
       simulatedPositionSize: paperTrades.simulatedPositionSize,
       realizedPnl: paperTrades.realizedPnl,
       openedAt: paperTrades.openedAt,
+      marketQuestion: paperTrades.marketQuestion,
     })
     .from(paperTrades)
     .where(ne(paperTrades.status, "open"))

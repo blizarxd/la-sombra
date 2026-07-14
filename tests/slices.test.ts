@@ -19,6 +19,7 @@ function t(over: Partial<SettledTrade> = {}): SettledTrade {
     simulatedPositionSize: 10,
     realizedPnl: 0,
     openedAt: at("2026-07-13T12:00:00Z"),
+    marketQuestion: "Yankees vs. Red Sox",
     ...over,
   };
 }
@@ -136,6 +137,40 @@ describe("buildMatrix", () => {
     const m = buildMatrix([t({ track: "combo", entryPrice: 0.65, realizedPnl: 99 })], spec);
     expect(m.rows).toEqual([]);
     expect(m.sampleSize).toBe(0);
+  });
+});
+
+describe("category dimension", () => {
+  const spec = {
+    id: "cat",
+    title: "t",
+    hint: "h",
+    minSample: 3,
+    rowDim: DIMS.category,
+    colDim: DIMS.track,
+  };
+
+  it("derives category from the market question, per book", () => {
+    const m = buildMatrix(
+      [
+        ...Array.from({ length: 3 }, () => t({ track: "live", marketQuestion: "Dota 2: Team A vs Team B", realizedPnl: 5 })),
+        ...Array.from({ length: 3 }, () => t({ track: "core", marketQuestion: "Real Madrid vs. Barcelona", realizedPnl: -2 })),
+      ],
+      spec,
+    );
+    const esports = m.rows.find((r) => r.key === "esports")!;
+    const deportes = m.rows.find((r) => r.key === "deportes")!;
+    expect(esports.cells.live!.pnl).toBe(15);
+    expect(esports.cells.core).toBeNull();
+    expect(deportes.cells.core!.pnl).toBe(-6);
+  });
+
+  it("files trades with no question under 'otros'", () => {
+    const m = buildMatrix(
+      Array.from({ length: 3 }, () => t({ marketQuestion: null, realizedPnl: 1 })),
+      spec,
+    );
+    expect(m.rows.map((r) => r.key)).toEqual(["otros"]);
   });
 });
 

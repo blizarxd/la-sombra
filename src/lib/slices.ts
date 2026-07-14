@@ -12,6 +12,7 @@
  *      the operator and the AI cut to argue about — never rules. The moment a
  *      matrix cell silently becomes a live filter, we are curve-fitting.
  */
+import { categorizeMarket, CATEGORY_LABELS, type CategoryKey } from "./category";
 import { hourInAppTz, weekdayInAppTz } from "./format";
 
 export const MATRIX_TRACKS = ["core", "live", "trade", "crypto", "elite"] as const;
@@ -32,6 +33,10 @@ export type SettledTrade = {
   simulatedPositionSize: number;
   realizedPnl: number | null;
   openedAt: Date | number;
+  /** Raw market question — the category is DERIVED from it, not from Polymarket
+   *  (whose category field is ~98% null). So category slices are only as good
+   *  as the text classifier, not as the exchange data. */
+  marketQuestion: string | null;
 };
 
 export type Axis = { key: string; label: string };
@@ -130,6 +135,19 @@ export function priceBandKey(entryPrice: number): string | null {
 
 export const TRACK_AXIS: Axis[] = MATRIX_TRACKS.map((t) => ({ key: t, label: TRACK_LABELS[t] }));
 
+// Category axis in a stable, human order (not alphabetical). "otros" last.
+const CATEGORY_ORDER: CategoryKey[] = [
+  "deportes",
+  "esports",
+  "cripto",
+  "economia",
+  "politica",
+  "clima",
+  "cultura",
+  "otros",
+];
+export const CATEGORY_AXIS: Axis[] = CATEGORY_ORDER.map((c) => ({ key: c, label: CATEGORY_LABELS[c] }));
+
 export const DIMS = {
   hourBlock: { axis: HOUR_BLOCKS, keyOf: (t: SettledTrade) => hourBlockKey(t.openedAt) } satisfies Dim,
   weekday: { axis: WEEKDAYS, keyOf: (t: SettledTrade) => weekdayKey(t.openedAt) } satisfies Dim,
@@ -138,6 +156,7 @@ export const DIMS = {
     axis: TRACK_AXIS,
     keyOf: (t: SettledTrade) => ((MATRIX_TRACKS as readonly string[]).includes(t.track) ? t.track : null),
   } satisfies Dim,
+  category: { axis: CATEGORY_AXIS, keyOf: (t: SettledTrade) => categorizeMarket(t.marketQuestion) } satisfies Dim,
 };
 
 // ---------------------------------------------------------------------------
@@ -283,6 +302,30 @@ export function buildAllMatrices(trades: SettledTrade[]): Matrix[] {
       minSample: 8,
       rowDim: DIMS.hourBlock,
       colDim: DIMS.weekday,
+    }),
+    buildMatrix(trades, {
+      id: "category-track",
+      title: "🏷️ Categoría × brazo",
+      hint: "¿Qué deporte/tema rinde en cada libro? OJO: la categoría la deducimos del texto (Polymarket la deja ~98% vacía), no es dato de la casa.",
+      minSample: 5,
+      rowDim: DIMS.category,
+      colDim: DIMS.track,
+    }),
+    buildMatrix(trades, {
+      id: "category-band",
+      title: "🏷️💲 Categoría × banda de entrada",
+      hint: "El cruce que buscas: ¿qué juego rinde a qué precio? Aquí aparece si p.ej. esports solo paga cuando entras barato.",
+      minSample: 5,
+      rowDim: DIMS.category,
+      colDim: DIMS.priceBand,
+    }),
+    buildMatrix(trades, {
+      id: "category-hour",
+      title: "🏷️🕐 Categoría × franja horaria",
+      hint: "¿A qué hora del día aparece y rinde cada categoría? (recuerda: la hora es a menudo un proxy de qué liga juega).",
+      minSample: 5,
+      rowDim: DIMS.category,
+      colDim: DIMS.hourBlock,
     }),
   ];
 }
