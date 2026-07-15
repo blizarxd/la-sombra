@@ -19,11 +19,25 @@ import { runScript } from "./_runner";
  * never opens a position itself.
  */
 
-const ARMS = ["core", "live", "trade", "crypto"] as const;
+const ARMS = ["core", "trade", "crypto"] as const;
+
+// "live" excluded 2026-07-15 (AI cut, medio/elite, evidence-backed): live is
+// structurally negative (realized -78.35 on 696 resolved, worsening cut over
+// cut) and elite's own weekly top-10-per-arm filter can't tell a genuinely
+// skilled live wallet from one that just had a lucky week inside a losing
+// regime — elite deepened to -44.33 (27 settled, no longer noise) with live
+// as a likely contributor. Wipe any stale live rows so old picks don't keep
+// mirroring; re-add if/when live's own restricted rules (2026-07-15 floor
+// bump) prove out.
+const RETIRED_ARMS = ["live"] as const;
 
 runScript("update:elite-roster", async (db) => {
   const now = new Date();
   const sinceMs = now.getTime() - ELITE_LOOKBACK_MS;
+
+  for (const arm of RETIRED_ARMS) {
+    db.delete(eliteRoster).where(eq(eliteRoster.arm, arm)).run();
+  }
 
   let totalSlots = 0;
   for (const arm of ARMS) {

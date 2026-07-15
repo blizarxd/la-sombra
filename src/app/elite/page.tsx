@@ -35,7 +35,9 @@ export default function ElitePage() {
     status: t.status,
   }));
 
-  const arms = ["core", "live", "trade", "crypto"] as const;
+  // "live" retired as an elite source 2026-07-15 (see update-elite-roster.ts) — its
+  // roster stays empty on purpose, so it's dropped from display instead of a dead card.
+  const arms = ["core", "trade", "crypto"] as const;
 
   return (
     <div className="space-y-4">
