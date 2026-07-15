@@ -88,7 +88,11 @@ export const DEFAULT_RULES: Rules = {
 // Bounds the self-improvement loop must respect (safety rails on tuning).
 export const RULE_BOUNDS: Record<string, { min: number; max: number }> = {
   maxEntryPrice: { min: 0.6, max: 0.9 },
-  minEntryPrice: { min: 0.02, max: 0.3 },
+  // max raised 0.3 -> 0.5 on 2026-07-15: /matriz shows live losing money below
+  // 45¢ (30-44¢ ROI -9.8%, n=130) — a manual live floor bump to 0.45 needed
+  // room above the old 0.3 ceiling. Without this, live's own deterministic
+  // tuner would clamp any future proposal back DOWN below the evidenced floor.
+  minEntryPrice: { min: 0.02, max: 0.5 },
   maxPriceDrift: { min: 0.02, max: 0.2 },
   maxSpread: { min: 0.01, max: 0.1 },
   minLiquidity: { min: 100, max: 10000 },

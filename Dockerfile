@@ -1,6 +1,10 @@
 # La Sombra — single-service image for Railway.
 # Runs the Next.js dashboard AND the in-process operator scheduler (paper only).
-FROM node:20-slim
+# node:20 lacked undici>=22.19 (the combo scraper's HTML fetcher silently fell
+# back to global fetch, which overflows on polymarket.com's >16KB response
+# headers — the real cause of the combo leaderboard "network error", not a
+# Polymarket-side block). Bumped 2026-07-15.
+FROM node:22-slim
 
 WORKDIR /app
 

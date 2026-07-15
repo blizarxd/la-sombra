@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, isNotNull, isNull, like } from "drizzle-orm";
+import { and, isNotNull, isNull, like, lt, or } from "drizzle-orm";
 import { getDb, getDbPath } from "../db/client";
 import { walletProfiles } from "../db/schema";
 import { APP_TZ, dayKeyTz, hourInAppTz } from "../lib/format";
@@ -35,7 +35,7 @@ type State = { lastDailyRun?: string; lastCycleToken?: string };
 // right after a meaningful change without waiting for the next 8am window. It
 // fires exactly once per new token because the tick records it in
 // operator-state.json.
-const DAILY_CYCLE_TOKEN = "2026-07-14-elite-roster-launch";
+const DAILY_CYCLE_TOKEN = "2026-07-15-matrix-driven-tuning";
 
 // Johan's requested cut time: once a day, at 8am on HIS clock (APP_TZ =
 // America/Caracas, UTC-4) — not "the first tick after UTC midnight" (which
@@ -102,6 +102,33 @@ function hasUnprofiledSourced(): boolean {
   }
 }
 
+/**
+ * True while ANY leaderboard-ranked wallet needs (re)profiling — mined ones
+ * (checked above) are a NARROWER subset of this. Found 2026-07-15: the
+ * frequent-cycle top-up only ever checked mined wallets, so once those caught
+ * up, plain leaderboard wallets (the majority — up to 500) stopped getting
+ * scan-wallets.ts runs outside the once-a-day 50-wallet batch. With hundreds
+ * of tracked wallets that batch never caught up, which is why
+ * trackedWalletStyles stayed mostly null across many AI cuts — not a data
+ * bug, a starved trigger. Mirrors scan-wallets.ts's own candidate query.
+ */
+function hasWalletNeedingProfile(): boolean {
+  try {
+    const staleBefore = new Date(Date.now() - 12 * 3600 * 1000);
+    const rows = getDb()
+      .select({ id: walletProfiles.id })
+      .from(walletProfiles)
+      .where(
+        and(isNotNull(walletProfiles.sourceRank), or(isNull(walletProfiles.lastScannedAt), lt(walletProfiles.lastScannedAt, staleBefore))),
+      )
+      .limit(1)
+      .all();
+    return rows.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 function step(scriptFile: string, args: string[] = []): void {
   const full = path.join(scriptsDir, scriptFile);
   try {
@@ -149,7 +176,7 @@ async function main() {
   // Keep draining the freshly-mined queue every tick (a modest batch, gentle on
   // the API) until every sourced wallet has a profile — the desks and the trade
   // book depend on those profiles, and waiting for the daily cycle starved them.
-  if (needCrypto || needFast || hasUnprofiledSourced()) {
+  if (needCrypto || needFast || hasUnprofiledSourced() || hasWalletNeedingProfile()) {
     step("scan-wallets.ts", ["--limit", "30"]);
   }
 
@@ -181,6 +208,7 @@ async function main() {
     step("profile-combo-wallets.ts"); // 🧩 combo cashflow scorecards (eligibility gate)
     step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
     step("update-elite-roster.ts"); // 🏆 refresh "la crema" — top-10-weekly per arm
+    step("manual-tune-2026-07-15.ts"); // one-off: live minEntryPrice -> 0.45 (idempotent, self-skips once applied)
     step("update-rules.ts"); // self-improve CORE strategy on core evidence
     step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)
     step("update-rules-trade.ts"); // self-improve TRADE book (quota-scalpers) on its own evidence

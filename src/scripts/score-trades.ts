@@ -3,6 +3,8 @@ import type { Db } from "@/db/client";
 import { decisionJournal, eliteRoster, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
+import { categorizeMarket } from "@/lib/category";
+import { effectiveMinEntryPrice } from "@/lib/categoryEntryBand";
 import { ELITE_POSITION_SIZE } from "@/lib/elite";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -184,6 +186,15 @@ runScript("score:trades", async (db) => {
         .run();
     }
 
+    // Category-aware entry floor: a book-wide minEntryPrice never blindly
+    // clobbers a category with a different sweet spot (evidence in /matriz).
+    // Only tightens rules.minEntryPrice, never loosens it — see categoryEntryBand.ts.
+    const marketCategory = categorizeMarket(market?.question ?? obs.marketQuestion);
+    const coreRulesForThisTrade = {
+      ...rules,
+      minEntryPrice: effectiveMinEntryPrice("core", marketCategory, rules.minEntryPrice),
+    };
+
     const result = scoreTrade(
       {
         walletGlobalScore: wallet?.globalScore ?? 0,
@@ -203,7 +214,7 @@ runScript("score:trades", async (db) => {
         liquidity,
         timeToResolutionHours,
       },
-      rules,
+      coreRulesForThisTrade,
     );
 
     const risks = [...result.risks];
