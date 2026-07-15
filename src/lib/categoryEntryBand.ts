@@ -31,3 +31,23 @@ export function effectiveMinEntryPrice(scope: RuleScope, category: CategoryKey, 
   const override = OVERRIDES[scope]?.[category];
   return override != null ? Math.max(override, globalMinEntryPrice) : globalMinEntryPrice;
 }
+
+/**
+ * Whole categories a book should NOT copy at all — the bleed isn't the price,
+ * it's that the category itself is unpredictable for that book, so no entry
+ * floor can save it. Evidence per (scope, category) in /matriz (categoría ×
+ * brazo), same discipline as the floors: only well-sampled, clearly-losing
+ * cells get excluded.
+ *
+ * live/clima: weather markets ("highest temp in London = 28°C?") are near-random
+ *   in-play — En Vivo went 13% win, ROI -55.3% over n=8. No price band fixes a
+ *   coin-flip on the weather, so live simply stops copying them. (2026-07-15.)
+ */
+const EXCLUSIONS: Partial<Record<RuleScope, ReadonlySet<CategoryKey>>> = {
+  live: new Set<CategoryKey>(["clima"]),
+};
+
+/** True if this book should skip the whole category regardless of price. */
+export function isCategoryExcluded(scope: RuleScope, category: CategoryKey): boolean {
+  return EXCLUSIONS[scope]?.has(category) ?? false;
+}

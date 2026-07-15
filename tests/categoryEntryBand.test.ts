@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { effectiveMinEntryPrice } from "@/lib/categoryEntryBand";
+import { effectiveMinEntryPrice, isCategoryExcluded } from "@/lib/categoryEntryBand";
 
 describe("effectiveMinEntryPrice", () => {
   it("tightens core's floor for deportes to the matrix-backed 0.60", () => {
@@ -19,5 +19,21 @@ describe("effectiveMinEntryPrice", () => {
     expect(effectiveMinEntryPrice("live", "deportes", 0.26)).toBe(0.26);
     expect(effectiveMinEntryPrice("trade", "deportes", 0.1)).toBe(0.1);
     expect(effectiveMinEntryPrice("crypto", "cripto", 0.55)).toBe(0.55);
+  });
+});
+
+describe("isCategoryExcluded", () => {
+  it("excludes weather markets from the live book (13% win, ROI -55%)", () => {
+    expect(isCategoryExcluded("live", "clima")).toBe(true);
+  });
+
+  it("keeps live's winning categories — esports and deportes are NOT excluded", () => {
+    expect(isCategoryExcluded("live", "esports")).toBe(false);
+    expect(isCategoryExcluded("live", "deportes")).toBe(false);
+  });
+
+  it("does not exclude clima from other books — the finding is live-specific", () => {
+    expect(isCategoryExcluded("core", "clima")).toBe(false);
+    expect(isCategoryExcluded("trade", "clima")).toBe(false);
   });
 });

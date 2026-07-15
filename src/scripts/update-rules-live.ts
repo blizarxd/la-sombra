@@ -85,15 +85,24 @@ runScript("update:rules-live", async (db) => {
     );
   }
 
-  // 3) Cheap lottery entries: if very-low-price live entries lose, raise minEntryPrice.
+  // 3) Cheap lottery entries: if very-low-price live entries lose, raise
+  //    minEntryPrice — with a step PROPORTIONAL to how badly they bleed. The
+  //    old flat +0.02/cut was too timid: it took ~10 days to walk 0.10 -> 0.45
+  //    while the book bled the whole time (the reason a manual jump was needed
+  //    on 2026-07-15). Now a mild loss nudges +0.02, a severe one (avg <= -$1
+  //    per cheap copy) jumps +0.05, so the tuner reaches the evidenced floor in
+  //    ~2 cuts instead of ~15. Still bounded by RULE_BOUNDS (max 0.50), so it
+  //    can't over-climb into live's profitable 45-59¢ band.
   const cheap = rows.filter((r) => (r.entryPrice ?? 1) < rules.minEntryPrice + 0.08);
   const cheapAvg = avg(cheap.map((r) => r.realizedPnl ?? 0));
   if (cheap.length >= MIN_SAMPLES && (cheapAvg ?? 0) < 0) {
+    const severe = (cheapAvg ?? 0) <= -1;
+    const step = severe ? 0.05 : 0.02;
     propose(
       "minEntryPrice",
       rules.minEntryPrice,
-      rules.minEntryPrice + 0.02,
-      "cheap live lottery entries lose",
+      rules.minEntryPrice + step,
+      `cheap live lottery entries lose${severe ? " badly" : ""}`,
       `${cheap.length} live copies with entry < ${(rules.minEntryPrice + 0.08).toFixed(2)} avg $${cheapAvg!.toFixed(2)}`,
       "skip live longshots",
     );

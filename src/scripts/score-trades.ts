@@ -4,7 +4,7 @@ import { decisionJournal, eliteRoster, marketSnapshots, observedTrades, paperTra
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { categorizeMarket } from "@/lib/category";
-import { effectiveMinEntryPrice } from "@/lib/categoryEntryBand";
+import { effectiveMinEntryPrice, isCategoryExcluded } from "@/lib/categoryEntryBand";
 import { ELITE_POSITION_SIZE } from "@/lib/elite";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
@@ -336,11 +336,14 @@ runScript("score:trades", async (db) => {
     // small fixed size, deliberately WITHOUT the late-entry drift guard (live
     // prices move by nature — that is exactly what this ledger measures).
     // It never touches core stats: everything core filters track='core'.
+    // Category exclusion: skip whole categories the matrix shows live can't
+    // predict in-play regardless of price (clima/weather: 13% win, ROI -55%).
     if (
       control.liveEnabled &&
       inPlay === true &&
       obs.side === "BUY" &&
       book &&
+      !isCategoryExcluded("live", marketCategory) &&
       (wallet?.globalScore ?? 0) >= liveRules.minWalletGlobalScore &&
       book.bestAsk !== null &&
       book.bestAsk >= liveRules.minEntryPrice &&
