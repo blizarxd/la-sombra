@@ -905,6 +905,60 @@ export function getSliceMatrices(db: Db) {
 }
 
 /**
+ * Flat-stake what-if: "if every copy had staked a fixed $X instead of whatever
+ * it actually staked, what would our capital curve look like?" Only core
+ * varies its stake ($5-$20, scaled by signal confidence) — the other books
+ * already stake flat, so for them actual === simulated (shown anyway, so the
+ * comparison table doesn't have a confusing gap).
+ *
+ * APPROXIMATION: rescales each trade's real realizedPnl linearly by
+ * (flatStake / actualStake). This assumes the fill price at $X would have been
+ * the same as it was at the actual stake — true for a deep book, optimistic
+ * for a thin one (a bigger real stake can walk the book to a worse average
+ * price than a smaller one would have gotten). So the flat-stake number here
+ * is a slight best case, not a re-run of the real order-book simulation.
+ */
+export function getFlatStakeSimulation(db: Db, flatStake = 5) {
+  const tracks = ["core", "live", "trade", "crypto", "elite"] as const;
+  const rows = db
+    .select({
+      track: paperTrades.track,
+      simulatedPositionSize: paperTrades.simulatedPositionSize,
+      realizedPnl: paperTrades.realizedPnl,
+    })
+    .from(paperTrades)
+    .where(ne(paperTrades.status, "open"))
+    .all();
+
+  const round2 = (x: number) => Math.round(x * 100) / 100;
+
+  return tracks.map((track) => {
+    const trs = rows.filter((r) => r.track === track && r.simulatedPositionSize > 0);
+    let actualPnl = 0;
+    let actualStaked = 0;
+    let flatPnl = 0;
+    for (const t of trs) {
+      const pnl = t.realizedPnl ?? 0;
+      actualPnl += pnl;
+      actualStaked += t.simulatedPositionSize;
+      flatPnl += pnl * (flatStake / t.simulatedPositionSize);
+    }
+    const flatStaked = trs.length * flatStake;
+    return {
+      track,
+      count: trs.length,
+      actualPnl: round2(actualPnl),
+      actualStaked: round2(actualStaked),
+      actualRoi: actualStaked > 0 ? actualPnl / actualStaked : null,
+      flatPnl: round2(flatPnl),
+      flatStaked: round2(flatStaked),
+      flatRoi: flatStaked > 0 ? flatPnl / flatStaked : null,
+      variesStake: track === "core",
+    };
+  });
+}
+
+/**
  * Parked-capital projection: how many positions the core book would hold open in
  * steady state for different max-resolution windows. Uses the real hold-time
  * distribution of already-settled copies + the recent daily copy rate. Lets the

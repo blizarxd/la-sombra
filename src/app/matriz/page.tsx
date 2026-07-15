@@ -1,7 +1,8 @@
 import { getDb } from "@/db/client";
-import { getSliceMatrices } from "@/lib/queries";
+import { getFlatStakeSimulation, getSliceMatrices } from "@/lib/queries";
 import { APP_TZ } from "@/lib/format";
 import type { Matrix, MatrixCell } from "@/lib/slices";
+import { TRACK_LABELS } from "@/lib/slices";
 import { Card, Empty, PnlText, Table, Td, Th } from "../components/ui";
 
 export const dynamic = "force-dynamic";
@@ -78,9 +79,66 @@ function MatrixCard({ m }: { m: Matrix }) {
   );
 }
 
+function FlatStakeCard({ rows }: { rows: ReturnType<typeof getFlatStakeSimulation> }) {
+  const withData = rows.filter((r) => r.count > 0);
+  if (!withData.length) return null;
+  return (
+    <Card title="🎯 Apuesta fija vs. apuesta por confianza — ¿cuál da más capital?">
+      <p className="mb-3 text-sm text-mist">
+        Pre-partido es el único libro que varía el tamaño ($5–$20 según qué tan segura está la señal); los demás ya
+        apuestan $5 fijo siempre. Esta tabla simula: <span className="text-white">si TODOS los libros hubieran apostado
+        siempre $5</span>, ¿cuánto capital tendríamos hoy, comparado con lo que realmente pasó?
+      </p>
+      <Table>
+        <thead>
+          <tr>
+            <Th>Brazo</Th>
+            <Th className="text-right">Trades</Th>
+            <Th className="text-right">PnL real (sizing actual)</Th>
+            <Th className="text-right">ROI real</Th>
+            <Th className="text-right">PnL simulado ($5 fijo)</Th>
+            <Th className="text-right">ROI simulado</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {withData.map((r) => (
+            <tr key={r.track}>
+              <Td className="font-medium text-white">
+                {TRACK_LABELS[r.track]}
+                {r.variesStake ? <span className="ml-1 text-[11px] text-mist">(sizing variable)</span> : null}
+              </Td>
+              <Td className="text-right tabular-nums">{r.count}</Td>
+              <Td className="text-right">
+                <PnlText value={r.actualPnl} />
+              </Td>
+              <Td className="text-right tabular-nums text-mist">
+                {r.actualRoi != null ? `${(r.actualRoi * 100).toFixed(1)}%` : "—"}
+              </Td>
+              <Td className="text-right">
+                <PnlText value={r.flatPnl} />
+              </Td>
+              <Td className="text-right tabular-nums text-mist">
+                {r.flatRoi != null ? `${(r.flatRoi * 100).toFixed(1)}%` : "—"}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </Table>
+      <p className="mt-2 text-[11px] leading-4 text-mist">
+        El PnL simulado reescala cada trade linealmente (pnl × $5 ÷ lo que apostó de verdad) — asume que a $5 el precio de
+        llenado hubiera sido igual de bueno, lo cual es optimista en libros delgados (una apuesta grande a veces come más
+        del libro y llena a peor precio que una chica). Para los libros que ya apuestan $5 fijo, real y simulado deberían
+        coincidir — son la misma columna, sirve como control de sanidad. La comparación que importa es Pre-partido: si su
+        ROI real supera al simulado, el sizing por confianza está sumando de verdad, no solo maquillando el PnL bruto.
+      </p>
+    </Card>
+  );
+}
+
 export default function MatrizPage() {
   const db = getDb();
   const matrices = getSliceMatrices(db);
+  const flatSim = getFlatStakeSimulation(db);
   const total = matrices[0]?.sampleSize ?? 0;
 
   return (
@@ -111,6 +169,8 @@ export default function MatrizPage() {
           </li>
         </ul>
       </Card>
+
+      <FlatStakeCard rows={flatSim} />
 
       {matrices.map((m) => (
         <MatrixCard key={m.id} m={m} />
