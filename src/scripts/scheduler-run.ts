@@ -41,8 +41,21 @@ const liveMinutes = Math.max(1, Number(process.env.LIVE_MONITOR_MINUTES ?? 2));
 // hanging on an upstream API call (no per-request timeout) would block the child
 // forever, leave `busy` stuck true, and silently skip every future tick — the
 // bot goes mute until a container restart. The timeout kills the hung child and
-// frees the mutex so the next tick recovers on its own. Kept under the interval.
-const CHILD_TIMEOUT_MS = Math.min(15 * 60_000, Math.max(60_000, intervalMs - 60_000));
+// frees the mutex so the next tick recovers on its own.
+//
+// A flat ceiling, NOT capped to the tick interval: the once-a-day DAILY cycle
+// (embedded in the same operator-tick.ts invocation whenever its 08:00 gate
+// fires) does real sequential work — leaderboard/crypto/fast/combo scans,
+// combo profiling, a 50-wallet profiling batch, 4 rule tuners, one AI analyst
+// API call, EOD report. Found 2026-07-15: once the combo scraper started
+// actually succeeding (it used to fail in ~1s), the daily cycle grew past the
+// old 15-minute cap and got SIGKILLed before reaching later steps (rule
+// tuners, AI analyst, report) every single run — silently, since a killed
+// run never persists `lastCycleToken`, so it just retried from the top next
+// tick and hit the same wall. A longer ceiling only costs a few skipped
+// FREQUENT ticks (mutex-guarded, logged, harmless) on the one day-per-day it
+// runs long; it never blocks the bot from noticing a genuinely hung script.
+const CHILD_TIMEOUT_MS = 25 * 60_000;
 let busy = false;
 function run(label: string, scriptFile: string): void {
   if (busy) {
