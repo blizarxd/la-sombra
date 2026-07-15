@@ -58,10 +58,34 @@ function nearest(points: Pt[], t: number): Pt | null {
   return Math.abs(a.t - t) <= Math.abs(b.t - t) ? a : b;
 }
 
+/** "1-2-5" rounding: the nearest clean step at or above `raw`. */
+function niceStep(raw: number): number {
+  if (raw <= 0) return 1;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const norm = raw / mag;
+  const step = norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10;
+  return step * mag;
+}
+
+/** Money gridline ticks: a single clean step shared by both sides of zero, so 0 always lands on a line. */
+function moneyTicks(minY: number, maxY: number, targetPerSide = 2): number[] {
+  const step = niceStep(Math.max(maxY, -minY, 1) / Math.max(targetPerSide, 1));
+  const ticks = new Set<number>([0]);
+  for (let v = step; v <= maxY + step * 0.001; v += step) ticks.add(Math.round(v));
+  for (let v = -step; v >= minY - step * 0.001; v -= step) ticks.add(Math.round(v));
+  return [...ticks].sort((a, b) => a - b);
+}
+
+/** "-$14" not "$-14" — the sign reads before the currency symbol. */
+function fmtAxisMoney(v: number): string {
+  const r = Math.round(v);
+  return r < 0 ? `-$${Math.abs(r)}` : `$${r}`;
+}
+
 export function PnlChart({
   marked,
   realized,
-  height = 220,
+  height = 236,
 }: {
   marked: Pt[];
   realized?: Pt[];
@@ -71,10 +95,14 @@ export function PnlChart({
   const [hoverX, setHoverX] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
 
+  // "realized" is the honest scorecard (settled money) and stays the vivid
+  // accent; "marked" is a noisier estimate (open positions swing with every
+  // mark), so it recedes — same line weight, lower ink — instead of fighting
+  // realized for attention when the two zigzag over each other.
   const allSeries: SeriesDef[] = useMemo(() => {
     const s: SeriesDef[] = [];
     if (realized && realized.length) s.push({ key: "realized", label: "Realizado (liquidado)", color: "#34d399", points: realized });
-    s.push({ key: "marked", label: "Valor de mercado (incl. abiertas)", color: "#94a3b8", points: marked });
+    s.push({ key: "marked", label: "Valor de mercado (incl. abiertas)", color: "#8b98a9", points: marked });
     return s;
   }, [marked, realized]);
 
@@ -114,8 +142,7 @@ export function PnlChart({
       timeZone: "America/Caracas",
     });
 
-  // Nice-ish price ticks: max, a couple between, 0, min.
-  const priceTicks = Array.from(new Set([maxY, maxY / 2, 0, minY / 2, minY].map((v) => Math.round(v))));
+  const priceTicks = moneyTicks(minY, maxY);
   const timeTicks = [minX, minX + spanX / 4, minX + spanX / 2, minX + (3 * spanX) / 4, maxX];
 
   // Hover: map pixel x back to time, find nearest point on each visible series.
@@ -148,6 +175,10 @@ export function PnlChart({
         {allSeries.map((s) => {
           const off = hidden[s.key];
           const cur = s.points[s.points.length - 1]?.pnl ?? 0;
+          // The value's color is a STATUS signal (profit/loss), not the series'
+          // identity color — identity lives in the swatch beside it. Coloring
+          // the number by series would hide a loss sitting in the gray line.
+          const valueColor = off ? "#5b6674" : cur >= 0 ? "#34d399" : "#fb7185";
           return (
             <button
               key={s.key}
@@ -160,8 +191,8 @@ export function PnlChart({
             >
               <span className="inline-block h-0.5 w-4 rounded-full" style={{ background: s.color }} />
               <span className="text-mist">{s.label}</span>
-              <span className="font-semibold tabular-nums" style={{ color: off ? "#8b98a9" : s.color }}>
-                ${cur.toFixed(2)}
+              <span className="font-semibold tabular-nums" style={{ color: valueColor }}>
+                {cur >= 0 ? "+" : "-"}${Math.abs(cur).toFixed(2)}
               </span>
               <span className="text-mist">{off ? "＋" : "×"}</span>
             </button>
@@ -185,26 +216,25 @@ export function PnlChart({
           <defs>
             {shown.map((s) => (
               <linearGradient key={s.key} id={`grad-${s.key}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={s.color} stopOpacity="0.28" />
+                <stop offset="0%" stopColor={s.color} stopOpacity={s.key === "realized" ? "0.14" : "0.06"} />
                 <stop offset="100%" stopColor={s.color} stopOpacity="0" />
               </linearGradient>
             ))}
           </defs>
 
-          {/* price gridlines + labels */}
-          {priceTicks.map((v, i) => (
-            <g key={`p${i}`}>
+          {/* price gridlines + labels — solid hairlines, one shade off the panel surface */}
+          {priceTicks.map((v) => (
+            <g key={`p${v}`}>
               <line
                 x1={PAD.l}
                 y1={py(v)}
                 x2={W - PAD.r}
                 y2={py(v)}
-                stroke="#232c38"
-                strokeWidth={v === 0 ? 1 : 0.75}
-                strokeDasharray={v === 0 ? "0" : "2 7"}
+                stroke={v === 0 ? "#33404f" : "#1c2530"}
+                strokeWidth="1"
               />
               <text x={PAD.l - 8} y={py(v) + 4} fill="#8b98a9" fontSize="11" textAnchor="end" className="tabular-nums">
-                ${v}
+                {fmtAxisMoney(v)}
               </text>
             </g>
           ))}
@@ -241,8 +271,8 @@ export function PnlChart({
                     d={line}
                     fill="none"
                     stroke={s.color}
-                    strokeWidth={emphasize ? 2.4 : 1.4}
-                    strokeOpacity={emphasize ? 1 : 0.85}
+                    strokeWidth={2}
+                    strokeOpacity={emphasize ? 1 : 0.55}
                     strokeLinejoin="round"
                     strokeLinecap="round"
                     style={{ ["--pnl-len" as string]: String(len) }}
@@ -251,12 +281,31 @@ export function PnlChart({
               );
             })}
 
+          {/* end-of-line anchors: a fixed dot at the last value, always on (not just on hover) —
+              this is the direct label the eye lands on; the legend chip above carries its number. */}
+          {shown.map((s) => {
+            const last = s.points[s.points.length - 1];
+            if (!last) return null;
+            return (
+              <circle
+                key={`end-${s.key}`}
+                cx={px(last.t)}
+                cy={py(last.pnl)}
+                r="4"
+                fill={s.color}
+                fillOpacity={s.key === "realized" ? 1 : 0.7}
+                stroke="#11161d"
+                strokeWidth="2"
+              />
+            );
+          })}
+
           {/* hover crosshair + dots */}
           {hoverPx != null ? (
             <g>
               <line x1={hoverPx} y1={PAD.t} x2={hoverPx} y2={height - PAD.b} stroke="#4b5563" strokeWidth="1" strokeDasharray="3 3" />
               {readouts.map((r) => (
-                <circle key={r.s.key} cx={px(r.pt.t)} cy={py(r.pt.pnl)} r="4" fill={r.s.color} stroke="#11161d" strokeWidth="1.5" />
+                <circle key={r.s.key} cx={px(r.pt.t)} cy={py(r.pt.pnl)} r="4" fill={r.s.color} stroke="#11161d" strokeWidth="2" />
               ))}
             </g>
           ) : null}
