@@ -23,6 +23,8 @@ import {
 } from "./benchmarks";
 import { categorizeMarket, type CategoryKey } from "./category";
 import { dayKeyTz } from "./format";
+import { isCryptoBookEligible } from "./profiler";
+import { getActiveRules } from "./rules";
 import { projectOpenByWindow } from "./projection";
 import { buildAllMatrices, type SettledTrade } from "./slices";
 
@@ -431,6 +433,70 @@ export function getTradeStats(db: Db) {
     quotaWallets,
     tradeRuleVersion: tradeRuleSet?.version ?? null,
     tradeRuleChanges,
+  };
+}
+
+/**
+ * Funnel diagnostic for the ₿ Cripto book — answers WHERE the pipeline dies.
+ *
+ * Built 2026-07-16 after the third consecutive AI cut reported 0 settled /
+ * 0 open ("ya no es timing, es pipeline"). Each stage counts the wallets or
+ * signals that survive one more gate, so a zero pinpoints the broken stage
+ * instead of guessing:
+ *
+ *   mined -> profiled -> tracked -> eligible          (wallet side)
+ *   signals 7d -> BUYs -> BUYs inside the entry band  (signal side)
+ *
+ * The suspected gap: only status="track" wallets are monitored at all, but
+ * crypto scalpers round-trip instead of holding to resolution, so their
+ * HOLDER score can stay under the tracking threshold even when they pass
+ * isCryptoBookEligible — eligible for the book, invisible to the monitor.
+ * `eligibleNotTracked` counts exactly those wallets.
+ */
+export function getCryptoFunnel(db: Db) {
+  const { rules: cryptoRules } = getActiveRules(db, "crypto");
+
+  const mined = db
+    .select()
+    .from(walletProfiles)
+    .where(like(walletProfiles.sources, "%crypto-market%"))
+    .all();
+  const profiled = mined.filter((w) => w.lastScannedAt != null);
+  const tracked = profiled.filter((w) => w.status === "track");
+  const eligible = profiled.filter((w) => isCryptoBookEligible(w, cryptoRules.minWalletGlobalScore));
+  const eligibleNotTracked = eligible.filter((w) => w.status !== "track");
+
+  // Signal side: what did the monitor actually SEE from these wallets lately?
+  // (Only tracked wallets are monitored, so this reflects real visibility.)
+  const since = new Date(Date.now() - 7 * 24 * 3600 * 1000);
+  const signals = selectByIdsChunked(mined.map((w) => w.address), (batch) =>
+    db
+      .select({
+        side: observedTrades.side,
+        detectedPrice: observedTrades.detectedPrice,
+        walletEntryPrice: observedTrades.walletEntryPrice,
+      })
+      .from(observedTrades)
+      .where(and(inArray(observedTrades.walletAddress, batch), gte(observedTrades.timestamp, since)))
+      .all(),
+  );
+  const buys = signals.filter((s) => s.side === "BUY");
+  const buysInBand = buys.filter((s) => {
+    const p = s.detectedPrice ?? s.walletEntryPrice;
+    return p >= cryptoRules.minEntryPrice && p <= cryptoRules.maxEntryPrice;
+  });
+
+  return {
+    minedCount: mined.length,
+    profiledCount: profiled.length,
+    trackedCount: tracked.length,
+    eligibleCount: eligible.length,
+    eligibleNotTrackedCount: eligibleNotTracked.length,
+    signals7d: signals.length,
+    buys7d: buys.length,
+    buysInBand7d: buysInBand.length,
+    band: { min: cryptoRules.minEntryPrice, max: cryptoRules.maxEntryPrice },
+    minScore: cryptoRules.minWalletGlobalScore,
   };
 }
 

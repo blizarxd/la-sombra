@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getDb } from "@/db/client";
 import {
   getCryptoBookStats,
+  getCryptoFunnel,
   getPnlSeries,
   getRealizedPnlSeries,
   getSourcingDesk,
@@ -22,6 +23,7 @@ export default function CriptoPage() {
   const realizedSeries = getRealizedPnlSeries(db, "crypto");
   const byWallet = getWalletPaperPerformance(db, "crypto").sort((a, b) => b.totalPnl - a.totalPnl);
   const desk = getSourcingDesk(db, "crypto-market");
+  const funnel = getCryptoFunnel(db);
   const pnlTone = crypto.totalPnl > 0 ? "profit" : crypto.totalPnl < 0 ? "loss" : "neutral";
 
   const cryptoRows: TradeRowData[] = crypto.trades.map((t) => ({
@@ -56,6 +58,30 @@ export default function CriptoPage() {
         <Stat label="Posiciones abiertas" value={String(crypto.openCount)} />
         <Stat label="Reglas cripto (auto)" value={crypto.cryptoRuleVersion ? `v${crypto.cryptoRuleVersion}` : "—"} hint="banda 55–75¢ · $5 fijo" />
       </div>
+
+      <Card title="Embudo del libro cripto (diagnóstico)">
+        <p className="mb-3 text-xs text-mist">
+          Tres cortes seguidos en 0/0 — este embudo señala la etapa exacta donde muere el pipeline, con datos reales
+          de la BD. Lado billeteras: minada → perfilada → <b>seguida</b> (solo las seguidas se monitorean) → elegible
+          (puntaje ≥{funnel.minScore} o quota-trader). Lado señales (últimos 7 días): vistas → compras → compras
+          dentro de la banda {Math.round(funnel.band.min * 100)}–{Math.round(funnel.band.max * 100)}¢.
+        </p>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <Stat label="Minadas" value={String(funnel.minedCount)} hint="tag crypto-market" />
+          <Stat label="Perfiladas" value={String(funnel.profiledCount)} hint="con escaneo profundo" />
+          <Stat label="Seguidas (se monitorean)" value={String(funnel.trackedCount)} tone={funnel.trackedCount === 0 ? "loss" : "neutral"} hint="status = track" />
+          <Stat label="Elegibles para el libro" value={String(funnel.eligibleCount)} hint={`puntaje ≥${funnel.minScore} o quota`} />
+          <Stat
+            label="Elegibles pero NO seguidas"
+            value={String(funnel.eligibleNotTrackedCount)}
+            tone={funnel.eligibleNotTrackedCount > 0 ? "loss" : "profit"}
+            hint="el hueco sospechado: el libro las acepta, el monitor no las ve"
+          />
+          <Stat label="Señales vistas (7d)" value={String(funnel.signals7d)} tone={funnel.signals7d === 0 ? "loss" : "neutral"} />
+          <Stat label="Compras (7d)" value={String(funnel.buys7d)} />
+          <Stat label="Compras en banda (7d)" value={String(funnel.buysInBand7d)} tone={funnel.buysInBand7d === 0 ? "loss" : "profit"} />
+        </div>
+      </Card>
 
       {crypto.cryptoRuleChanges.length > 0 ? (
         <Card title="Automejora del libro cripto (cambios de reglas)">
