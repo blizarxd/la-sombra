@@ -1,139 +1,33 @@
 import "../lib/env";
 import { execFileSync } from "node:child_process";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { and, isNotNull, isNull, like, lt, or } from "drizzle-orm";
-import { getDb, getDbPath } from "../db/client";
-import { walletProfiles } from "../db/schema";
-import { APP_TZ, dayKeyTz, hourInAppTz } from "../lib/format";
 import { log } from "../lib/logger";
 
 /**
- * Single "operator tick" for scheduler / `/loop` use.
+ * FAST lane of the operator: catch fresh signals and keep PnL current.
  *
- * Runs the FREQUENT cycle every time (monitor -> score -> update PnL ->
- * review outcomes), and the DAILY cycle at most once per calendar day
- * (a batch of wallet profiling -> auto rule update -> EOD report).
+ * This lane must stay SHORT. It shares the scheduler's fast mutex with the
+ * 2-minute live tick, because both run monitor-trades + score-trades and would
+ * double-copy the same observed trades if they overlapped. Every minute this
+ * lane holds that mutex is a minute the live book is blind.
  *
- * Cadence state is kept in data/operator-state.json so restarts are safe.
- * Every sub-step is the SAME read-only / paper-only script used manually —
- * this orchestrator adds no new capability, only timing. No orders, ever.
+ * That is not hypothetical: on 2026-07-16 the heavy sourcing/profiling/daily
+ * work still lived here, the lane ran for tens of minutes at a time, and the
+ * live book recorded ZERO signals for a full day. All of it now lives in
+ * operator-daily.ts. Keep it that way — if a step here is API-bound and slow,
+ * it belongs in the heavy lane.
+ *
+ * Read-only / paper-only. No orders, ever.
  */
 
 const scriptsDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptsDir, "..", "..");
-// Keep cadence state NEXT TO THE DATABASE (the persistent volume in the
-// cloud) so a redeploy does not re-trigger the daily cycle.
-const statePath = path.join(path.dirname(getDbPath()), "operator-state.json");
-
-type State = { lastDailyRun?: string; lastCycleToken?: string };
-
-// One-shot force token: bump this string in a deploy to force the DAILY cycle
-// (self-improve rules + AI analyst + EOD report) to run ONCE on the next tick,
-// regardless of the 08:00 gate below. Used sparingly to push a fresh AI "cut"
-// right after a meaningful change without waiting for the next 8am window. It
-// fires exactly once per new token because the tick records it in
-// operator-state.json.
-const DAILY_CYCLE_TOKEN = "2026-07-15-matrix-driven-tuning";
-
-// Johan's requested cut time: once a day, at 8am on HIS clock (APP_TZ =
-// America/Caracas, UTC-4) — not "the first tick after UTC midnight" (which
-// used to land at a random hour of the Caracas day, and even overlapped with
-// the scheduler's separate morning-report trigger, risking two Telegram
-// reports on the same day). This is now the ONLY place the daily cycle fires
-// from — scheduler-run.ts's old standalone morning-report timer was removed.
-const DAILY_CYCLE_HOUR = 8;
-
-function readState(): State {
-  try {
-    return JSON.parse(fs.readFileSync(statePath, "utf8")) as State;
-  } catch {
-    return {};
-  }
-}
-
-function writeState(s: State): void {
-  fs.writeFileSync(statePath, JSON.stringify(s, null, 2));
-}
-
-/** True once at least one real (leaderboard-sourced) wallet is queued. */
-function hasWalletQueue(): boolean {
-  try {
-    const rows = getDb()
-      .select({ id: walletProfiles.id })
-      .from(walletProfiles)
-      .where(isNotNull(walletProfiles.sourceRank))
-      .limit(1)
-      .all();
-    return rows.length > 0;
-  } catch {
-    return true; // never block the tick on a read error
-  }
-}
-
-/** True once at least one wallet carries the given source tag. */
-function hasSourceTag(tag: string): boolean {
-  try {
-    const rows = getDb()
-      .select({ id: walletProfiles.id })
-      .from(walletProfiles)
-      .where(like(walletProfiles.sources, `%${tag}%`))
-      .limit(1)
-      .all();
-    return rows.length > 0;
-  } catch {
-    return true; // never block the tick on a read error
-  }
-}
-
-/** True while any market-mined wallet is still waiting to be profiled. */
-function hasUnprofiledSourced(): boolean {
-  try {
-    const rows = getDb()
-      .select({ id: walletProfiles.id })
-      .from(walletProfiles)
-      .where(and(isNotNull(walletProfiles.sources), isNull(walletProfiles.lastScannedAt)))
-      .limit(1)
-      .all();
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * True while ANY leaderboard-ranked wallet needs (re)profiling — mined ones
- * (checked above) are a NARROWER subset of this. Found 2026-07-15: the
- * frequent-cycle top-up only ever checked mined wallets, so once those caught
- * up, plain leaderboard wallets (the majority — up to 500) stopped getting
- * scan-wallets.ts runs outside the once-a-day 50-wallet batch. With hundreds
- * of tracked wallets that batch never caught up, which is why
- * trackedWalletStyles stayed mostly null across many AI cuts — not a data
- * bug, a starved trigger. Mirrors scan-wallets.ts's own candidate query.
- */
-function hasWalletNeedingProfile(): boolean {
-  try {
-    const staleBefore = new Date(Date.now() - 12 * 3600 * 1000);
-    const rows = getDb()
-      .select({ id: walletProfiles.id })
-      .from(walletProfiles)
-      .where(
-        and(isNotNull(walletProfiles.sourceRank), or(isNull(walletProfiles.lastScannedAt), lt(walletProfiles.lastScannedAt, staleBefore))),
-      )
-      .limit(1)
-      .all();
-    return rows.length > 0;
-  } catch {
-    return false;
-  }
-}
 
 function step(scriptFile: string, args: string[] = []): void {
   const full = path.join(scriptsDir, scriptFile);
   try {
-    // Run each sub-script with the same Node + tsx loader (avoids .cmd spawn
-    // issues on Windows and needs no global tsx).
+    // Same Node + tsx loader (avoids .cmd spawn issues on Windows, needs no global tsx).
     execFileSync(process.execPath, ["--import", "tsx", full, ...args], {
       cwd: projectRoot,
       stdio: "inherit",
@@ -147,80 +41,14 @@ function step(scriptFile: string, args: string[] = []): void {
 
 async function main() {
   const now = new Date();
-  log.info(`[operator:tick] === tick @ ${now.toISOString()} (PAPER ONLY) ===`);
+  log.info(`[operator:tick] === fast tick @ ${now.toISOString()} (PAPER ONLY) ===`);
 
-  // --- Frequent cycle: catch fresh signals and keep PnL current ---
   step("enforce-core-policy.ts"); // idempotent human policy (max resolution window)
   step("monitor-trades.ts");
   step("score-trades.ts");
   step("paper-update-pnl.ts");
   step("combo-tick.ts"); // 🧩 combo book: copy + settle (own ledger, own settlement)
   step("review-outcomes.ts");
-
-  // Sourcing bootstrap: seed each desk's wallet pool from market mining without
-  // waiting for the daily cycle. Checked PER TAG so a transient failure of one
-  // miner (e.g. a rate-limited API call) is retried on the next tick instead of
-  // being permanently skipped once the other tag succeeded.
-  const needCrypto = !hasSourceTag("crypto-market");
-  const needFast = !hasSourceTag("fast-market");
-  if (needCrypto || needFast) {
-    log.info(`[operator:tick] sourcing bootstrap (crypto=${needCrypto}, fast=${needFast})`);
-    if (needCrypto) step("scan-crypto-markets.ts");
-    if (needFast) step("scan-fast-markets.ts");
-  }
-  // 🧩 Combo sourcing is DELIBERATELY NOT in the frequent bootstrap: the
-  // leaderboard scrape is slow (dozens of profile fetches) and running it every
-  // tick risks blowing past the scheduler watchdog and starving the core loop.
-  // It runs only in the daily cycle below. combo-tick (fast) still runs every
-  // frequent tick to copy/settle from whatever wallets are already sourced.
-  // Keep draining the freshly-mined queue every tick (a modest batch, gentle on
-  // the API) until every sourced wallet has a profile — the desks and the trade
-  // book depend on those profiles, and waiting for the daily cycle starved them.
-  if (needCrypto || needFast || hasUnprofiledSourced() || hasWalletNeedingProfile()) {
-    step("scan-wallets.ts", ["--limit", "30"]);
-  }
-
-  // --- Daily cycle: once per Caracas calendar day, only during the 08:00
-  // hour. Two narrow exceptions bypass the hour gate: bootstrap (a fresh
-  // deploy with an empty wallet queue self-heals immediately instead of
-  // sitting idle until 8am) and a manual one-shot DAILY_CYCLE_TOKEN bump. ---
-  const state = readState();
-  const today = dayKeyTz(now); // Johan's calendar day, not UTC
-  const isCycleHour = hourInAppTz(now) === DAILY_CYCLE_HOUR;
-  const alreadyRanToday = state.lastDailyRun === today;
-  const firstOfDay = isCycleHour && !alreadyRanToday;
-  const bootstrap = !hasWalletQueue();
-  const forced = state.lastCycleToken !== DAILY_CYCLE_TOKEN; // one-shot deploy force
-  if (firstOfDay || bootstrap || forced) {
-    log.info(
-      `[operator:tick] running DAILY cycle (${
-        forced
-          ? `forced by token ${DAILY_CYCLE_TOKEN}`
-          : firstOfDay
-            ? `08:00 ${APP_TZ} cut`
-            : "bootstrap: empty wallet queue"
-      })`,
-    );
-    step("scan-leaderboard.ts"); // refresh the top-500 real-wallet queue (idempotent upsert)
-    step("scan-crypto-markets.ts"); // mine crypto-active wallets the PnL board hides
-    step("scan-fast-markets.ts"); // mine scalpers from fast-resolving markets (any category)
-    step("scan-combo-leaderboard.ts"); // 🧩 mine the Combo Cup board for combo bettors
-    step("profile-combo-wallets.ts"); // 🧩 combo cashflow scorecards (eligibility gate)
-    step("scan-wallets.ts", ["--limit", "50"]); // profile a fresh batch, still gentle on the API
-    step("update-elite-roster.ts"); // 🏆 refresh "la crema" — top-10-weekly per arm
-    step("manual-tune-2026-07-15.ts"); // one-off: live minEntryPrice -> 0.45 (idempotent, self-skips once applied)
-    step("update-rules.ts"); // self-improve CORE strategy on core evidence
-    step("update-rules-live.ts"); // self-improve LIVE experiment on live evidence (own pace)
-    step("update-rules-trade.ts"); // self-improve TRADE book (quota-scalpers) on its own evidence
-    step("update-rules-crypto.ts"); // self-improve CRYPTO book on its own evidence
-    step("ai-analyst.ts"); // expert AI layer: reasoning + recommendations + bounded auto-tuning
-    step("report-daily.ts");
-    writeState({ ...state, lastDailyRun: today, lastCycleToken: DAILY_CYCLE_TOKEN });
-  } else {
-    log.info(
-      `[operator:tick] daily cycle waits for 08:00 ${APP_TZ} (now ${hourInAppTz(now)}:00, already ran today=${alreadyRanToday}) — frequent cycle only`,
-    );
-  }
 
   log.info("[operator:tick] === tick complete ===");
 }

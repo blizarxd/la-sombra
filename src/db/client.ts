@@ -20,6 +20,12 @@ export function getDb(): Db {
   fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const sqlite = new Database(dbPath);
   sqlite.pragma("journal_mode = WAL");
+  // The scheduler runs a FAST lane (monitor/score) and a HEAVY lane (scans,
+  // profiling, tuners, report) as separate processes on purpose, so two writers
+  // can legitimately meet on the same file. WAL allows that, but without a busy
+  // timeout the loser of a write race fails instantly with SQLITE_BUSY instead
+  // of waiting the few ms the other writer needs. Wait instead of dying.
+  sqlite.pragma("busy_timeout = 15000");
   _db = drizzle(sqlite, { schema });
   return _db;
 }

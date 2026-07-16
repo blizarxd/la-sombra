@@ -34,46 +34,55 @@ const projectRoot = path.resolve(scriptsDir, "..", "..");
 const liveEnabled = process.env.LIVE_MONITOR === "1";
 const liveMinutes = Math.max(1, Number(process.env.LIVE_MONITOR_MINUTES ?? 2));
 
-// One shared mutex: never run two child passes at once (avoids double-scoring
-// the same observed trades and keeps the API load bounded).
+// TWO LANES, TWO MUTEXES (rebuilt 2026-07-16 after a real outage).
 //
-// WATCHDOG: a child pass gets a hard timeout. Without it, a single sub-script
-// hanging on an upstream API call (no per-request timeout) would block the child
-// forever, leave `busy` stuck true, and silently skip every future tick — the
-// bot goes mute until a container restart. The timeout kills the hung child and
-// frees the mutex so the next tick recovers on its own.
+// FAST lane — operator-tick (every `minutes`) and live-tick (every 2 min).
+// These two MUST share a mutex: both run monitor-trades + score-trades, and
+// overlapping them would double-copy the same observed trade. The lane is kept
+// short so the live tick actually gets its turn.
 //
-// A flat ceiling, NOT capped to the tick interval: the once-a-day DAILY cycle
-// (embedded in the same operator-tick.ts invocation whenever its 08:00 gate
-// fires) does real sequential work — leaderboard/crypto/fast/combo scans,
-// combo profiling, a 50-wallet profiling batch, 4 rule tuners, one AI analyst
-// API call, EOD report. Found 2026-07-15: once the combo scraper started
-// actually succeeding (it used to fail in ~1s), the daily cycle grew past the
-// old 15-minute cap and got SIGKILLed before reaching later steps (rule
-// tuners, AI analyst, report) every single run — silently, since a killed
-// run never persists `lastCycleToken`, so it just retried from the top next
-// tick and hit the same wall. A longer ceiling only costs a few skipped
-// FREQUENT ticks (mutex-guarded, logged, harmless) on the one day-per-day it
-// runs long; it never blocks the bot from noticing a genuinely hung script.
-const CHILD_TIMEOUT_MS = 25 * 60_000;
-let busy = false;
-function run(label: string, scriptFile: string): void {
-  if (busy) {
-    log.warn(`[scheduler] ${label} skipped — a pass is already running`);
+// HEAVY lane — operator-daily: API-bound scans, wallet profiling, rule tuners,
+// AI analyst, EOD report. It never runs monitor-trades or score-trades, so it
+// CANNOT double-score, which is what makes a separate mutex safe. It writes to
+// the same SQLite file concurrently — that is fine under WAL, and client.ts
+// sets a busy_timeout so a write race waits instead of throwing.
+//
+// Why this exists: until 2026-07-16 all of it was ONE lane on ONE mutex. Once
+// the heavy work started running every tick, it held the mutex almost
+// continuously, the 2-minute live tick was skipped essentially forever, and the
+// live book logged ZERO signals for a whole day. Splitting the lanes is the fix;
+// the timeouts below are only a backstop for a genuinely hung script.
+//
+// WATCHDOG: each lane gets its own hard timeout. Without one, a sub-script
+// hanging on an upstream API call would block its child forever, leave `busy`
+// stuck true, and silently skip every future tick until a container restart.
+// The fast lane's ceiling is tight because it has no excuse to run long. The
+// heavy lane's is generous because it legitimately does — and, since
+// operator-daily now checkpoints every step, a kill there costs one step, not
+// the whole cut.
+const FAST_TIMEOUT_MS = 10 * 60_000;
+const HEAVY_TIMEOUT_MS = 40 * 60_000;
+
+const busy: Record<"fast" | "heavy", boolean> = { fast: false, heavy: false };
+
+function run(lane: "fast" | "heavy", label: string, scriptFile: string): void {
+  if (busy[lane]) {
+    log.warn(`[scheduler] ${label} skipped — the ${lane} lane is already running`);
     return;
   }
-  busy = true;
-  log.info(`[scheduler] launching ${label}`);
+  busy[lane] = true;
+  const timeout = lane === "fast" ? FAST_TIMEOUT_MS : HEAVY_TIMEOUT_MS;
+  log.info(`[scheduler] launching ${label} (${lane} lane)`);
   execFile(
     process.execPath,
     ["--import", "tsx", path.join(scriptsDir, scriptFile)],
-    { cwd: projectRoot, maxBuffer: 32 * 1024 * 1024, timeout: CHILD_TIMEOUT_MS, killSignal: "SIGKILL" },
+    { cwd: projectRoot, maxBuffer: 32 * 1024 * 1024, timeout, killSignal: "SIGKILL" },
     (err, stdout, stderr) => {
-      busy = false;
+      busy[lane] = false;
       if (stdout) process.stdout.write(stdout);
       if (stderr) process.stderr.write(stderr);
       if (err && (err as unknown as { killed?: boolean }).killed)
-        log.error(`[scheduler] ${label} KILLED by watchdog after ${(CHILD_TIMEOUT_MS / 60000).toFixed(0)}m (hung) — mutex freed, next tick will retry`);
+        log.error(`[scheduler] ${label} KILLED by watchdog after ${(timeout / 60000).toFixed(0)}m (hung) — ${lane} mutex freed, next tick will retry`);
       else if (err) log.warn(`[scheduler] ${label} exited non-zero: ${err.message}`);
       else log.info(`[scheduler] ${label} finished`);
     },
@@ -87,12 +96,14 @@ function run(label: string, scriptFile: string): void {
 // report twice on the same Caracas day (once from each mechanism, at
 // slightly different moments). Removed 2026-07-14: one cut, one place.
 log.info(
-  `[scheduler] active — operator every ${minutes} min` +
+  `[scheduler] active — fast lane every ${minutes} min, heavy lane every ${minutes} min` +
     (liveEnabled ? `, live observation every ${liveMinutes} min` : "") +
     " (daily cut + report at 08:00 Johan's clock, PAPER ONLY)",
 );
-setTimeout(() => run("operator tick", "operator-tick.ts"), 15_000); // settle first
-setInterval(() => run("operator tick", "operator-tick.ts"), intervalMs);
+setTimeout(() => run("fast", "operator tick", "operator-tick.ts"), 15_000); // settle first
+setTimeout(() => run("heavy", "operator daily", "operator-daily.ts"), 45_000); // stagger off the fast lane
+setInterval(() => run("fast", "operator tick", "operator-tick.ts"), intervalMs);
+setInterval(() => run("heavy", "operator daily", "operator-daily.ts"), intervalMs);
 if (liveEnabled) {
-  setInterval(() => run("live tick", "live-tick.ts"), liveMinutes * 60_000);
+  setInterval(() => run("fast", "live tick", "live-tick.ts"), liveMinutes * 60_000);
 }
