@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { CATEGORY_LABELS, categorizeMarket, type CategoryKey } from "@/lib/category";
+import { splitComboLegs } from "@/lib/comboLegs";
 import { money, price, shortAddr, when } from "@/lib/format";
 import { Badge, Empty, PnlText, Table, Td, Th } from "./ui";
 
@@ -52,10 +53,13 @@ export function PaginatedTradesTable({
   rows,
   columns,
   emptyHint,
+  splitLegs = false,
 }: {
   rows: TradeRowData[];
   columns: TradeColumn[];
   emptyHint?: string;
+  /** 🧩 Combos only: render the " AND "-joined legs as a numbered list. */
+  splitLegs?: boolean;
 }) {
   const [pageSize, setPageSize] = useState<number | "all">(20);
   const [page, setPage] = useState(0);
@@ -103,16 +107,31 @@ export function PaginatedTradesTable({
     switch (col) {
       case "opened":
         return <Td key={col} className="whitespace-nowrap text-mist">{when(t.openedAtMs)}</Td>;
-      case "market":
+      case "market": {
+        // A combo's market text is every leg glued together with " AND " — one
+        // unreadable line. Show the legs stacked instead: that IS the pick.
+        const legs = splitLegs ? splitComboLegs(t.market) : [];
         return (
           <Td key={col} className="max-w-80">
-            {t.market}
+            {legs.length > 1 ? (
+              <ol className="space-y-0.5">
+                {legs.map((leg, i) => (
+                  <li key={i} className="flex gap-1.5">
+                    <span className="shrink-0 text-[11px] text-mist">{i + 1}.</span>
+                    <span>{leg}</span>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              t.market
+            )}
             {t.demo ? <span className="ml-1 text-[10px] text-fuchsia-300">[DEMO]</span> : null}
             <div className="text-[11px] text-mist">
               {t.outcome ?? ""} · {t.side}
             </div>
           </Td>
         );
+      }
       case "wallet":
         return (
           <Td key={col}>

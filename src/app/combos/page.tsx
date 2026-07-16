@@ -123,6 +123,7 @@ export default function CombosPage() {
       <Card title={`Copias de combos (${combo.trades.length})`}>
         <PaginatedTradesTable
           rows={comboRows}
+          splitLegs
           columns={["opened", "market", "wallet", "size", "entry", "pnl", "status"]}
           emptyHint="Aún no hay combos copiados. El libro abre cuando una billetera de la Combo Cup con cashflow combo positivo compra un combo dentro de la banda 2x–50x apostando ≥$10. El sourcing y el perfilado corren en el ciclo del operador — sin datos falsos."
         />
@@ -176,8 +177,13 @@ export default function CombosPage() {
       <div className="space-y-1 text-xs text-mist">
         <div>
           Notas honestas: (1) La entrada se copia al precio ejecutado de la billetera — los combos van por RFQ y no
-          hay libro público, así que en real podríamos no conseguir esa misma cuota. (2) Un combo GANADO se detecta
-          cuando la billetera lo cobra (REDEEM, pago exacto); un cash-out se copia a su precio de venta. (3) La
+          hay libro público, así que en real podríamos no conseguir esa misma cuota. (2) <b>El pick:</b> guardamos el
+          título tal cual lo publica Polymarket y arriba se muestra pata por pata. En las patas tipo «Will X win…?»
+          el lado es inequívoco (Sí). En las de partido («A vs B») <b>Polymarket no publica a qué lado apostó la
+          billetera</b> — comprobado en todos sus endpoints (trades, clob, gamma, combos): el título solo trae el
+          enfrentamiento. No afecta al PnL (se liquida por su cobro real), pero significa que para copiar esas a mano
+          habría que mirar el combo en su perfil. (3) Un combo GANADO se detecta cuando la billetera lo cobra (REDEEM,
+          pago exacto) — es prueba real, no estimación; un cash-out se copia a su precio de venta. (4) La
           PÉRDIDA se decide <b>por las patas</b>, de dos formas. (a) Si el título deja leer el lado apostado
           («Will X win…?» = Sí) y esa pata resolvió en contra, el parlay está muerto: se anota al instante. La
           mayoría de patas son de partido («A vs B», O/U, spreads, esports) y su título <b>no dice qué lado eligió
@@ -188,7 +194,7 @@ export default function CombosPage() {
           combos perdidos no se cobran jamás (6 casos sin cobrar, de 22h a 304h). 12h ≈ 3,3× el cobro más lento visto.
           Sigue siendo una heurística — etiquetada — pero apoyada en una separación real entre las dos poblaciones.
           Si una pata sigue abierta, no se juzga nada: un combo con la última pata dentro de 10 días no se mata antes
-          de tiempo. (4) Si
+          de tiempo. (5) Si
           copiar combos no es rentable, este libro lo mostrará en rojo — y eso también es un resultado. Nunca se
           envían órdenes reales.
         </div>
