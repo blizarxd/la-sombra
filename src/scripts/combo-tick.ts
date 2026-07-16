@@ -30,7 +30,21 @@ import { runScript } from "./_runner";
  * SAFETY: paper only. Reads public data, writes simulated positions. No orders.
  */
 
-const COPY_LOOKBACK_MS = 26 * 3600 * 1000; // catch combos placed since ~yesterday's tick
+/**
+ * How stale a wallet's combo may be and still be worth copying.
+ *
+ * Was 26h — indefensible, and it bit on 2026-07-16. This tick runs every 20
+ * minutes, so in normal operation the measured copy lag is 0-2.3h; the 26h
+ * window never showed. Then the fast lane jammed for hours that morning, and
+ * when it recovered the book copied a whole day's backlog at once — bets on
+ * games that had ALREADY BEEN PLAYED, entered at the wallet's price from the
+ * day before. That is not copy trading, it is time travel, and every one of
+ * those rows is a copy we could never have made.
+ *
+ * 2h is generous against a 20-minute tick and still bounded by the leg guard
+ * below, which is the rigorous check.
+ */
+const COPY_LOOKBACK_MS = 2 * 3600 * 1000;
 const MIN_WALLET_STAKE_USD = 10; // Cup-qualifying stake = real conviction, not dust
 const MAX_LEGS = 12; // beyond this it's a lottery ticket regardless of price
 // Ceiling on simultaneously open combos. 15 -> 30 -> 120 over 2026-07-16.
@@ -102,6 +116,63 @@ runScript("combo:tick", async (db) => {
   }
   log.info(`combo book: ${eligible.length} eligible wallets, ${openCombos.length} open combos (rules v${ruleVersion})`);
 
+  // Legs already known to be resolved: FREE, no API call, ever again. Loaded
+  // once and shared by BOTH passes — the copy guard below and the loss pass.
+  const cachedLegs = new Map(
+    db
+      .select()
+      .from(comboLegResolutions)
+      .all()
+      .map((r) => [r.question, r]),
+  );
+  const tickCache = new Map<string, Awaited<ReturnType<typeof searchMarketByQuestion>>>();
+  let legLookups = 0;
+  let cacheHits = 0;
+
+  /** Resolve a leg to its market, cache-first. null = unknown this tick. */
+  async function legMarket(leg: string) {
+    const key = leg.trim().toLowerCase();
+    const hit = cachedLegs.get(key);
+    if (hit) {
+      cacheHits++;
+      return { closed: true, umaResolutionStatus: "resolved", outcomes: hit.outcomesJson, outcomePricesJson: hit.outcomePricesJson, endDateMs: hit.endDateMs, cached: true as const };
+    }
+    if (tickCache.has(key)) {
+      const m = tickCache.get(key)!;
+      return m ? { ...m, outcomePricesJson: m.outcomePrices, cached: false as const } : null;
+    }
+    if (legLookups >= MAX_LEG_LOOKUPS_PER_TICK) return null;
+    legLookups++;
+    try {
+      const m = await searchMarketByQuestion(leg);
+      tickCache.set(key, m);
+      if (m && m.closed && m.umaResolutionStatus === "resolved" && !cachedLegs.has(key)) {
+        const row = { question: key, endDateMs: m.endDateMs, outcomesJson: m.outcomes, outcomePricesJson: m.outcomePrices, resolvedAt: now };
+        db.insert(comboLegResolutions).values(row).onConflictDoNothing().run();
+        cachedLegs.set(key, row);
+      }
+      return m ? { ...m, outcomePricesJson: m.outcomePrices, cached: false as const } : null;
+    } catch (err) {
+      log.warn(`leg search failed for "${leg.slice(0, 60)}": ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
+  /**
+   * True when a leg of this combo has ALREADY resolved — the game is played and
+   * copying the bet now would be entering a race that is already over. The
+   * freshness window above is a blunt instrument; this is the real check, and
+   * it is what keeps a post-outage catch-up from filling the book with copies
+   * we could never have made.
+   */
+  async function anyLegAlreadyResolved(title: string | null): Promise<string | null> {
+    for (const leg of splitComboLegs(title)) {
+      const m = await legMarket(leg);
+      if (m && m.closed && m.umaResolutionStatus === "resolved") return leg;
+    }
+    return null;
+  }
+
   let opened = 0;
   let settled = 0;
   let openCount = openCombos.length;
@@ -165,6 +236,18 @@ runScript("combo:tick", async (db) => {
         .where(eq(observedTrades.dedupeKey, dedupeKey))
         .get();
       if (exists) continue;
+
+      // Race-already-over guard: never copy a combo whose game has been played.
+      // Checked AFTER the cheap filters and the dedupe so it only costs a
+      // lookup for a bet we would otherwise actually take.
+      const deadLeg = await anyLegAlreadyResolved(e.title);
+      if (deadLeg) {
+        log.warn(
+          `combo SKIPPED — leg already resolved: "${deadLeg.slice(0, 60)}" (wallet bet ${((nowMs - e.timestampMs) / 3600_000).toFixed(1)}h ago)`,
+        );
+        continue;
+      }
+
       // Concentration guard: wallets often LADDER the same legs several times
       // at different prices (seen live 2026-07-13). One copy per distinct
       // combo (same legs, same wallet) is enough — we track the pick, not
@@ -269,17 +352,8 @@ runScript("combo:tick", async (db) => {
   // leg against its real gamma market. One leg resolved against the pick kills
   // the parlay -> deterministic LOSS in hours, freeing the slot, instead of
   // the 7-day timeout. WINS are never decided here — only REDEEM proves a win.
-  // Legs already known to be resolved: FREE, no API call, ever again.
-  const cachedLegs = new Map(
-    db
-      .select()
-      .from(comboLegResolutions)
-      .all()
-      .map((r) => [r.question, r]),
-  );
-  const tickCache = new Map<string, Awaited<ReturnType<typeof searchMarketByQuestion>>>();
-  let legLookups = 0;
-  let cacheHits = 0;
+  // (cachedLegs / tickCache / legMarket are declared above — the copy guard and
+  // this pass share one cache and one lookup budget.)
   for (const t of openCombos) {
     if (settledIds.has(t.id)) continue;
     const legTitles = splitComboLegs(t.marketQuestion);
@@ -288,64 +362,25 @@ runScript("combo:tick", async (db) => {
     const legs: LegState[] = [];
     let budgetHit = false;
     for (const leg of legTitles) {
-      const key = leg.trim().toLowerCase();
-
-      const hit = cachedLegs.get(key);
-      if (hit) {
-        cacheHits++;
-        legs.push({
-          question: leg,
-          resolved: true, // only final resolutions are ever written to the cache
-          endDateMs: hit.endDateMs,
-          outcome: isAffirmativeLeg(leg)
-            ? judgeAffirmativeLeg({
-                closed: true,
-                umaResolutionStatus: "resolved",
-                outcomes: hit.outcomesJson,
-                outcomePrices: hit.outcomePricesJson,
-              })
-            : "unknown",
-        });
-        continue;
-      }
-
-      let market = tickCache.get(key);
-      if (market === undefined) {
-        if (legLookups >= MAX_LEG_LOOKUPS_PER_TICK) {
-          budgetHit = true;
-          break; // next tick continues where this one stopped
-        }
-        legLookups++;
-        try {
-          market = await searchMarketByQuestion(leg);
-        } catch (err) {
-          // Real API failure: this leg is unknown this tick, never guess.
-          log.warn(`leg search failed for "${leg.slice(0, 60)}": ${err instanceof Error ? err.message : err}`);
-          legs.push({ question: leg, resolved: null, endDateMs: null, outcome: "unknown" });
-          continue;
-        }
-        tickCache.set(key, market);
-      }
-
-      const resolved = market ? Boolean(market.closed && market.umaResolutionStatus === "resolved") : null;
-      // Persist ONLY final resolutions — an open market must stay re-checkable.
-      if (resolved === true && market && !cachedLegs.has(key)) {
-        const row = {
-          question: key,
-          endDateMs: market.endDateMs,
-          outcomesJson: market.outcomes,
-          outcomePricesJson: market.outcomePrices,
-          resolvedAt: now,
-        };
-        db.insert(comboLegResolutions).values(row).onConflictDoNothing().run();
-        cachedLegs.set(key, row);
+      const m = await legMarket(leg);
+      if (m === null && legLookups >= MAX_LEG_LOOKUPS_PER_TICK) {
+        budgetHit = true;
+        break; // budget spent — next tick continues where this one stopped
       }
       legs.push({
         question: leg,
-        resolved,
-        endDateMs: market?.endDateMs ?? null,
+        resolved: m ? Boolean(m.closed && m.umaResolutionStatus === "resolved") : null,
+        endDateMs: m?.endDateMs ?? null,
         // Only "Will …?" legs carry a readable side; everything else stays unknown.
-        outcome: market && isAffirmativeLeg(leg) ? judgeAffirmativeLeg(market) : "unknown",
+        outcome:
+          m && isAffirmativeLeg(leg)
+            ? judgeAffirmativeLeg({
+                closed: m.closed,
+                umaResolutionStatus: m.umaResolutionStatus,
+                outcomes: m.outcomes,
+                outcomePrices: m.outcomePricesJson,
+              })
+            : "unknown",
       });
     }
     if (budgetHit) continue;
