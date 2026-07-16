@@ -25,6 +25,63 @@
  * proof (it is deterministic and carries the real payout).
  */
 
+/**
+ * How long to wait for a REDEEM after a combo's LAST leg resolved before
+ * calling it a loss.
+ *
+ * MEASURED, not guessed (2026-07-16, Combo Cup wallets' public activity):
+ *   - 4 redeemed combos: the wallet claimed +2.4h, +2.7h, +2.8h and +3.6h
+ *     after the last leg resolved. Winners claim fast and consistently.
+ *   - 6 combos with EVERY leg resolved and no claim at all, aged 22h, 116h,
+ *     116h, 233h, 257h and 304h. Losers never claim, ever.
+ * A 12h grace is ~3.3x the slowest observed claim, and every unclaimed loser
+ * was already well past it. Still a heuristic — labeled as such — but one
+ * with a measured gap between the two populations instead of a round number.
+ */
+export const REDEEM_GRACE_MS = 12 * 3600 * 1000;
+
+export type ComboLegVerdict =
+  /** A leg we can read resolved AGAINST the pick — the parlay is dead. */
+  | { kind: "lost_leg"; leg: string }
+  /** Every leg resolved and the wallet never claimed past the grace window. */
+  | { kind: "lost_unclaimed"; hoursSinceResolved: number }
+  /** Not decidable yet (a leg still open, or legs we cannot read). */
+  | { kind: "hold"; allLegsResolved: boolean };
+
+export interface LegState {
+  question: string;
+  /** null when the leg could not be resolved to a market at all. */
+  resolved: boolean | null;
+  endDateMs: number | null;
+  /** Only meaningful for affirmative ("Will …?") legs; "unknown" otherwise. */
+  outcome: LegOutcome;
+}
+
+/**
+ * Decide a combo's fate from its legs alone (no redeem/sell seen).
+ *
+ * Only ever returns a LOSS. A win is never inferred here: REDEEM is the only
+ * proof of a win, and it carries the real payout. This deliberately replaces
+ * the old flat "7 days since the BUY" timeout, which was wrong in both
+ * directions — it waited a week on combos whose games finished yesterday, and
+ * it killed combos whose last leg was still 10 days out.
+ */
+export function decideComboByLegs(legs: LegState[], nowMs: number): ComboLegVerdict {
+  const lost = legs.find((l) => l.outcome === "lost");
+  if (lost) return { kind: "lost_leg", leg: lost.question };
+
+  const allLegsResolved = legs.length > 0 && legs.every((l) => l.resolved === true);
+  if (!allLegsResolved) return { kind: "hold", allLegsResolved: false };
+
+  // Every leg is settled. Winners claim within hours (see REDEEM_GRACE_MS);
+  // if nothing was claimed past the grace, the parlay missed.
+  const ends = legs.map((l) => l.endDateMs).filter((e): e is number => e != null);
+  if (ends.length === 0) return { kind: "hold", allLegsResolved: true }; // resolved but undatable — don't guess
+  const lastEnd = Math.max(...ends);
+  if (nowMs - lastEnd <= REDEEM_GRACE_MS) return { kind: "hold", allLegsResolved: true };
+  return { kind: "lost_unclaimed", hoursSinceResolved: (nowMs - lastEnd) / 3600_000 };
+}
+
 /** Split a combo title into its leg questions. */
 export function splitComboLegs(title: string | null | undefined): string[] {
   if (!title) return [];

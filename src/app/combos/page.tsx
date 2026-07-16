@@ -178,12 +178,17 @@ export default function CombosPage() {
           Notas honestas: (1) La entrada se copia al precio ejecutado de la billetera — los combos van por RFQ y no
           hay libro público, así que en real podríamos no conseguir esa misma cuota. (2) Un combo GANADO se detecta
           cuando la billetera lo cobra (REDEEM, pago exacto); un cash-out se copia a su precio de venta. (3) La
-          PÉRDIDA se detecta <b>por patas</b> solo cuando el título permite leer el lado apostado («Will X win…?» =
-          Sí): si esa pata resolvió en contra, el parlay está muerto y se anota en horas. <b>Cobertura real: parcial.</b>
-          La mayoría de las patas son de partido («A vs B», O/U, spreads, esports) y su título <b>no dice qué lado
-          eligió el apostador</b> — sabemos que resolvieron, no a favor de quién, así que no se juzgan: inventar ese
-          lado sería fabricar un resultado. Para esas, el respaldo sigue siendo 7 días sin cobro ni venta (heurística
-          etiquetada). (4) Si
+          PÉRDIDA se decide <b>por las patas</b>, de dos formas. (a) Si el título deja leer el lado apostado
+          («Will X win…?» = Sí) y esa pata resolvió en contra, el parlay está muerto: se anota al instante. La
+          mayoría de patas son de partido («A vs B», O/U, spreads, esports) y su título <b>no dice qué lado eligió
+          el apostador</b>, así que no se juzgan por ahí — inventar ese lado sería fabricar un resultado. (b) Para
+          todas: cuando <b>todas</b> las patas ya resolvieron y la billetera <b>nunca cobró</b> pasada una ventana de
+          12h. Esa ventana está <b>medida, no inventada</b> (16-jul, actividad pública de billeteras del Combo Cup):
+          los ganadores cobran entre <b>+2,4h y +3,6h</b> tras resolverse la última pata (4 de 4), mientras que los
+          combos perdidos no se cobran jamás (6 casos sin cobrar, de 22h a 304h). 12h ≈ 3,3× el cobro más lento visto.
+          Sigue siendo una heurística — etiquetada — pero apoyada en una separación real entre las dos poblaciones.
+          Si una pata sigue abierta, no se juzga nada: un combo con la última pata dentro de 10 días no se mata antes
+          de tiempo. (4) Si
           copiar combos no es rentable, este libro lo mostrará en rojo — y eso también es un resultado. Nunca se
           envían órdenes reales.
         </div>

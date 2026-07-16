@@ -2,7 +2,7 @@ import { and, desc, eq, gt, gte, like } from "drizzle-orm";
 import { decisionJournal, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchWalletActivity, searchMarketByQuestion } from "@/lib/adapters";
 import { comboLegCount, decideComboSettlement, type ComboActivityEvent } from "@/lib/combos";
-import { isAffirmativeLeg, judgeAffirmativeLeg, splitComboLegs } from "@/lib/comboLegs";
+import { decideComboByLegs, isAffirmativeLeg, judgeAffirmativeLeg, splitComboLegs, type LegState } from "@/lib/comboLegs";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { closePaperTradeAtPrice, openPaperTradeAtPrice, resolvePaperTrade } from "@/lib/paper/engine";
@@ -21,10 +21,11 @@ import { runScript } from "./_runner";
  * Settlement (combos have no public order book — they trade via RFQ):
  * - source wallet REDEEMs the combo  -> every leg hit -> WON (payout = shares).
  * - source wallet SELLs (cash-out)   -> we copy the exit at their price.
- * - a LEG resolved against the pick  -> the parlay is dead -> LOST (leg-based,
- *   see comboLegs.ts — hours instead of the 7-day wait, assumption labeled).
- * - COMBO_LOSS_TIMEOUT (7d) passes   -> assume a leg missed -> LOST.
- *   The timeout is an honest, LABELED heuristic (page + journal note it).
+ * - LOSS is decided from the LEGS (see comboLegs.ts): a readable leg resolved
+ *   against the pick, or every leg settled with no claim past a MEASURED grace
+ *   window. Replaced the old flat 7-day-since-buy timeout, which waited a week
+ *   on games that finished yesterday and falsely killed combos whose last leg
+ *   was still days away.
  *
  * SAFETY: paper only. Reads public data, writes simulated positions. No orders.
  */
@@ -122,9 +123,12 @@ runScript("combo:tick", async (db) => {
         log.info(`combo CASH-OUT ${t.id.slice(0, 8)}… $${realizedPnl.toFixed(2)} at ${verdict.price.toFixed(3)}`);
         await tg(`🔁 <b>COMBO cerrado</b> — la billetera hizo cash-out 🧩\n${escapeHtml(label)}\nPnL $${realizedPnl.toFixed(2)} (salida a su precio ${(verdict.price * 100).toFixed(1)}¢)`);
       } else {
-        const { realizedPnl } = resolvePaperTrade(db, t, false, now);
-        log.info(`combo LOST (timeout heuristic) ${t.id.slice(0, 8)}… $${realizedPnl.toFixed(2)}`);
-        await tg(`❌ <b>COMBO PERDIDO</b> (papel) 🧩\n${escapeHtml(label)}\nPnL $${realizedPnl.toFixed(2)} — sin redeem en 7 días (heurística etiquetada)`);
+        // loss_timeout (7d since the BUY) is NO LONGER acted on here — the leg
+        // pass below decides losses from the legs' real resolution instead.
+        // Kept as a signal only: acting on it was wrong in both directions
+        // (a week's wait on games that finished yesterday, and a false kill on
+        // combos whose last leg was still days out).
+        continue;
       }
       settled++;
       openCount--;
@@ -212,7 +216,7 @@ runScript("combo:tick", async (db) => {
           risksJson: JSON.stringify([
             "all legs must hit — a single miss loses the full stake",
             "no public book: entry copied at the wallet's executed RFQ price",
-            "loss: a leg resolved against the pick (assumes affirmative side) or 7-day-no-redeem timeout",
+            "loss: a readable leg resolved against the pick, or every leg settled with no claim past a measured 12h grace",
           ]),
           simulatedPositionSize: rules.minPositionSize,
           blockedGate: null,
@@ -257,42 +261,64 @@ runScript("combo:tick", async (db) => {
   let legLookups = 0;
   for (const t of openCombos) {
     if (settledIds.has(t.id)) continue;
-    const legs = splitComboLegs(t.marketQuestion);
-    if (legs.length < 2) continue;
-    let lostLeg: string | null = null;
-    for (const leg of legs) {
-      if (!isAffirmativeLeg(leg)) continue; // side unreadable from the title — never judge it
+    const legTitles = splitComboLegs(t.marketQuestion);
+    if (legTitles.length < 2) continue;
+
+    const legs: LegState[] = [];
+    let budgetHit = false;
+    for (const leg of legTitles) {
       const key = leg.trim().toLowerCase();
       let market = legCache.get(key);
       if (market === undefined) {
-        if (legLookups >= MAX_LEG_LOOKUPS_PER_TICK) break; // budget spent — next tick continues
+        if (legLookups >= MAX_LEG_LOOKUPS_PER_TICK) {
+          budgetHit = true;
+          break; // next tick continues where this one stopped
+        }
         legLookups++;
         try {
           market = await searchMarketByQuestion(leg);
         } catch (err) {
-          // Real API failure: skip this leg this tick, never guess a verdict.
+          // Real API failure: this leg is unknown this tick, never guess.
           log.warn(`leg search failed for "${leg.slice(0, 60)}": ${err instanceof Error ? err.message : err}`);
+          legs.push({ question: leg, resolved: null, endDateMs: null, outcome: "unknown" });
           continue;
         }
         legCache.set(key, market);
       }
-      if (market && judgeAffirmativeLeg(market) === "lost") {
-        lostLeg = leg;
-        break;
-      }
+      legs.push({
+        question: leg,
+        resolved: market ? Boolean(market.closed && market.umaResolutionStatus === "resolved") : null,
+        endDateMs: market?.endDateMs ?? null,
+        // Only "Will …?" legs carry a readable side; everything else stays unknown.
+        outcome: market && isAffirmativeLeg(leg) ? judgeAffirmativeLeg(market) : "unknown",
+      });
     }
-    if (!lostLeg) continue;
+    if (budgetHit) continue;
+
+    const verdict = decideComboByLegs(legs, nowMs);
+    if (verdict.kind === "hold") continue;
+
     const { realizedPnl } = resolvePaperTrade(db, t, false, now);
     settled++;
     openCount--;
     settledIds.add(t.id);
     const label = (t.marketQuestion ?? t.marketId).slice(0, 120);
-    log.info(`combo LOST (leg resolved against) ${t.id.slice(0, 8)}… $${realizedPnl.toFixed(2)} — "${lostLeg.slice(0, 60)}"`);
-    await tg(
-      `❌ <b>COMBO PERDIDO</b> (papel) 🧩\n${escapeHtml(label)}\n` +
-        `PnL $${realizedPnl.toFixed(2)} — pata resuelta en contra: «${escapeHtml(lostLeg.slice(0, 80))}»\n` +
-        `(liquidación por patas: asume el lado afirmativo de cada pata, ver /combos)`,
-    );
+    if (verdict.kind === "lost_leg") {
+      log.info(`combo LOST (leg resolved against) ${t.id.slice(0, 8)}… $${realizedPnl.toFixed(2)} — "${verdict.leg.slice(0, 60)}"`);
+      await tg(
+        `❌ <b>COMBO PERDIDO</b> (papel) 🧩\n${escapeHtml(label)}\n` +
+          `PnL $${realizedPnl.toFixed(2)} — pata resuelta en contra: «${escapeHtml(verdict.leg.slice(0, 80))}»`,
+      );
+    } else {
+      log.info(
+        `combo LOST (all legs settled ${verdict.hoursSinceResolved.toFixed(0)}h ago, never claimed) ${t.id.slice(0, 8)}… $${realizedPnl.toFixed(2)}`,
+      );
+      await tg(
+        `❌ <b>COMBO PERDIDO</b> (papel) 🧩\n${escapeHtml(label)}\n` +
+          `PnL $${realizedPnl.toFixed(2)} — todas las patas resueltas hace ${verdict.hoursSinceResolved.toFixed(0)}h y la billetera nunca cobró\n` +
+          `(los ganadores cobran en ~2-4h; medido, ver /combos)`,
+      );
+    }
   }
 
   log.info(`combo tick: ${opened} copied, ${settled} settled (${legLookups} leg lookups), ${openCount} open`);

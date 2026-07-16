@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { isAffirmativeLeg, judgeAffirmativeLeg, splitComboLegs } from "@/lib/comboLegs";
+import {
+  decideComboByLegs,
+  isAffirmativeLeg,
+  judgeAffirmativeLeg,
+  REDEEM_GRACE_MS,
+  splitComboLegs,
+  type LegState,
+} from "@/lib/comboLegs";
 
 // Real combo titles observed live 2026-07-16 on Combo Cup wallets.
 const REAL_TITLE =
@@ -70,5 +77,78 @@ describe("judgeAffirmativeLeg", () => {
   it("malformed JSON or missing Yes outcome is unknown, not a crash", () => {
     expect(judgeAffirmativeLeg({ ...resolvedYes, outcomePrices: "not json" })).toBe("unknown");
     expect(judgeAffirmativeLeg({ ...resolvedYes, outcomes: '["Over", "Under"]' })).toBe("unknown");
+  });
+});
+
+describe("decideComboByLegs", () => {
+  const NOW = 1_800_000_000_000;
+  const settledLongAgo = (q: string): LegState => ({
+    question: q,
+    resolved: true,
+    endDateMs: NOW - 48 * 3600_000,
+    outcome: "unknown",
+  });
+
+  it("a readable leg resolved AGAINST the pick kills the parlay immediately", () => {
+    const legs: LegState[] = [
+      { question: "Will Spain win on 2026-07-14?", resolved: true, endDateMs: NOW - 3600_000, outcome: "lost" },
+      { question: "Games Total: O/U 2.5", resolved: false, endDateMs: null, outcome: "unknown" },
+    ];
+    // Note: it does NOT wait for the other leg — one miss is already fatal.
+    expect(decideComboByLegs(legs, NOW)).toEqual({ kind: "lost_leg", leg: "Will Spain win on 2026-07-14?" });
+  });
+
+  it("all legs settled and never claimed past the grace = LOST", () => {
+    const v = decideComboByLegs([settledLongAgo("A vs B"), settledLongAgo("C vs D")], NOW);
+    expect(v.kind).toBe("lost_unclaimed");
+    if (v.kind === "lost_unclaimed") expect(v.hoursSinceResolved).toBeCloseTo(48, 0);
+  });
+
+  /**
+   * The measured gap this rule rides on (2026-07-16): winners claimed
+   * +2.4h..+3.6h after the last leg; losers never claimed at all. Inside the
+   * grace we must NOT call it — the winner may simply not have claimed yet.
+   */
+  it("does NOT call a loss while still inside the measured claim window", () => {
+    const legs: LegState[] = [
+      { question: "A vs B", resolved: true, endDateMs: NOW - 4 * 3600_000, outcome: "unknown" },
+    ];
+    expect(decideComboByLegs(legs, NOW)).toEqual({ kind: "hold", allLegsResolved: true });
+  });
+
+  it("waits when ANY leg is still open — a far-future leg must never be killed early", () => {
+    const legs: LegState[] = [
+      settledLongAgo("A vs B"),
+      { question: "Will France win on 2026-07-30?", resolved: false, endDateMs: null, outcome: "unknown" },
+    ];
+    expect(decideComboByLegs(legs, NOW)).toEqual({ kind: "hold", allLegsResolved: false });
+  });
+
+  it("a leg we could not look up at all blocks the verdict — never guess", () => {
+    const legs: LegState[] = [settledLongAgo("A vs B"), { question: "???", resolved: null, endDateMs: null, outcome: "unknown" }];
+    expect(decideComboByLegs(legs, NOW)).toEqual({ kind: "hold", allLegsResolved: false });
+  });
+
+  it("resolved but undatable legs hold — no end date means no grace to measure", () => {
+    const legs: LegState[] = [{ question: "A vs B", resolved: true, endDateMs: null, outcome: "unknown" }];
+    expect(decideComboByLegs(legs, NOW)).toEqual({ kind: "hold", allLegsResolved: true });
+  });
+
+  it("uses the LAST leg's end date, not the first", () => {
+    const legs: LegState[] = [
+      { question: "A vs B", resolved: true, endDateMs: NOW - 200 * 3600_000, outcome: "unknown" },
+      { question: "C vs D", resolved: true, endDateMs: NOW - 2 * 3600_000, outcome: "unknown" }, // still fresh
+    ];
+    expect(decideComboByLegs(legs, NOW)).toEqual({ kind: "hold", allLegsResolved: true });
+  });
+
+  it("the grace is the measured 12h — 3.3x the slowest observed claim", () => {
+    expect(REDEEM_GRACE_MS).toBe(12 * 3600_000);
+    const legs = [{ question: "A vs B", resolved: true, endDateMs: NOW - REDEEM_GRACE_MS - 1000, outcome: "unknown" as const }];
+    expect(decideComboByLegs(legs, NOW).kind).toBe("lost_unclaimed");
+  });
+
+  it("an empty leg list is never a verdict", () => {
+    expect(decideComboByLegs([], NOW)).toEqual({ kind: "hold", allLegsResolved: false });
   });
 });

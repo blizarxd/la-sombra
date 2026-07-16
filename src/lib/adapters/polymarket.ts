@@ -327,6 +327,7 @@ export async function searchMarketByQuestion(question: string): Promise<{
   umaResolutionStatus: string | null;
   outcomes: string | null;
   outcomePrices: string | null;
+  endDateMs: number | null;
 } | null> {
   const url = `${GAMMA_API()}/public-search?q=${encodeURIComponent(question)}`;
   const data = await httpGet("polymarket-gamma-api", url);
@@ -344,6 +345,7 @@ export async function searchMarketByQuestion(question: string): Promise<{
           umaResolutionStatus: (m.umaResolutionStatus ?? null) as string | null,
           outcomes: typeof m.outcomes === "string" ? m.outcomes : JSON.stringify(m.outcomes ?? null),
           outcomePrices: typeof m.outcomePrices === "string" ? m.outcomePrices : JSON.stringify(m.outcomePrices ?? null),
+          endDateMs: m.endDate ? Date.parse(String(m.endDate)) || null : null,
         };
       }
     }
