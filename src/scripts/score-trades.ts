@@ -1,4 +1,4 @@
-import { and, asc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, lt } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { decisionJournal, eliteRoster, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
@@ -138,11 +138,25 @@ runScript("score:trades", async (db) => {
     );
   }
 
+  // NEWEST FIRST — deliberately (flipped from oldest-first on 2026-07-16).
+  //
+  // This is a COPY bot: the freshest signal is the only one we could actually
+  // act on, and the live book needs in-play bets scored within MINUTES or the
+  // game ends and the order book dies. Oldest-first guaranteed the exact
+  // opposite — maximum latency on every signal — and the result was measured:
+  // 199 in-play signals detected on 2026-07-16 and ZERO live copies opened,
+  // because by the time each one was scored its book was gone (`book` null ->
+  // the live gate can't fire). Core had the same disease more quietly: it
+  // "decided" at prices that no longer existed.
+  //
+  // Working newest-first, the tail drains backwards on its own and whatever
+  // never gets reached is capped at STALE_SIGNAL_HOURS and dropped above —
+  // which is correct, because a signal that old was never copyable anyway.
   const pending = db
     .select()
     .from(observedTrades)
     .where(eq(observedTrades.scored, false))
-    .orderBy(asc(observedTrades.timestamp))
+    .orderBy(desc(observedTrades.timestamp))
     .limit(batch)
     .all();
   if (pending.length === 0) {

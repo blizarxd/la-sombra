@@ -178,10 +178,12 @@ export default function CombosPage() {
           Notas honestas: (1) La entrada se copia al precio ejecutado de la billetera — los combos van por RFQ y no
           hay libro público, así que en real podríamos no conseguir esa misma cuota. (2) Un combo GANADO se detecta
           cuando la billetera lo cobra (REDEEM, pago exacto); un cash-out se copia a su precio de venta. (3) La
-          PÉRDIDA se detecta <b>por patas</b>: cada pata del título es un mercado real, y si una resolvió en contra
-          el parlay entero está muerto — se anota la pérdida en horas, no en días. Esto <b>asume el lado afirmativo</b>
-          de cada pata («Will X win…?» = Sí), que es la convención abrumadora en combos; las patas ambiguas (O/U,
-          spreads) no se juzgan. Respaldo: 7 días sin cobro ni venta = pata fallada (heurística etiquetada). (4) Si
+          PÉRDIDA se detecta <b>por patas</b> solo cuando el título permite leer el lado apostado («Will X win…?» =
+          Sí): si esa pata resolvió en contra, el parlay está muerto y se anota en horas. <b>Cobertura real: parcial.</b>
+          La mayoría de las patas son de partido («A vs B», O/U, spreads, esports) y su título <b>no dice qué lado
+          eligió el apostador</b> — sabemos que resolvieron, no a favor de quién, así que no se juzgan: inventar ese
+          lado sería fabricar un resultado. Para esas, el respaldo sigue siendo 7 días sin cobro ni venta (heurística
+          etiquetada). (4) Si
           copiar combos no es rentable, este libro lo mostrará en rojo — y eso también es un resultado. Nunca se
           envían órdenes reales.
         </div>
