@@ -1,5 +1,5 @@
 import { and, desc, eq, gt, gte, like } from "drizzle-orm";
-import { decisionJournal, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
+import { comboLegResolutions, decisionJournal, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchWalletActivity, searchMarketByQuestion } from "@/lib/adapters";
 import { comboLegCount, decideComboSettlement, type ComboActivityEvent } from "@/lib/combos";
 import { decideComboByLegs, isAffirmativeLeg, judgeAffirmativeLeg, splitComboLegs, type LegState } from "@/lib/comboLegs";
@@ -33,16 +33,28 @@ import { runScript } from "./_runner";
 const COPY_LOOKBACK_MS = 26 * 3600 * 1000; // catch combos placed since ~yesterday's tick
 const MIN_WALLET_STAKE_USD = 10; // Cup-qualifying stake = real conviction, not dust
 const MAX_LEGS = 12; // beyond this it's a lottery ticket regardless of price
-// Raised 15 -> 30 on 2026-07-16 (Johan): the book filled to 15/15 in its first
-// real day and stopped taking signals. Leg-based loss settlement (below) now
-// frees dead slots in hours instead of 7 days, so a bigger ceiling no longer
-// means capital parked forever in losers. Still $5 fixed = $150 max at risk.
-const MAX_OPEN_COMBOS = 30; // capital-parked ceiling for the whole book
+// Ceiling on simultaneously open combos. 15 -> 30 -> 120 over 2026-07-16.
+//
+// This book is PAPER, so the cap was never about risk — nothing is at stake.
+// What it really bounds is SETTLEMENT THROUGHPUT: every open combo has to be
+// checked against its legs, and each unseen leg costs one gamma call. When leg
+// resolutions were re-fetched every tick, a full book burned the whole lookup
+// budget on games that had finished days earlier and the combos at the back of
+// the queue were never evaluated at all — the cap was really a disguise for
+// that bottleneck. Resolutions are now cached permanently in the DB
+// (combo_leg_resolutions: closed + uma-resolved is final and never changes), so
+// a leg costs at most ONE call in its lifetime and the budget only pays for
+// genuinely new games. That is what makes a much bigger book affordable.
+//
+// It is not unlimited on purpose: a cap keeps the book a simulation of
+// something a person could plausibly run, keeps the per-tick work bounded, and
+// makes "the book is full" a visible signal rather than silent unbounded
+// growth. MAX_OPEN_PER_WALLET still does the diversification work.
+const MAX_OPEN_COMBOS = 120;
 const MAX_OPEN_PER_WALLET = 5; // diversification: one prolific bettor can't eat the whole book
-// Leg-check budget per tick: each never-seen leg costs one public-search call.
-// Questions repeat across combos (same games), so a small per-tick budget with
-// a cache covers the whole book within a couple of ticks.
-const MAX_LEG_LOOKUPS_PER_TICK = 40;
+// Budget for legs we have NEVER resolved before (cached ones are free). Sized
+// for a day's worth of fresh games, not for the whole open book.
+const MAX_LEG_LOOKUPS_PER_TICK = 60;
 const MIN_COMBO_BUYS_30D = 3; // eligibility: enough combo history to judge
 const ELIGIBLE_WALLET_LIMIT = 12; // API friendliness: top wallets by combo net PnL
 
@@ -257,8 +269,17 @@ runScript("combo:tick", async (db) => {
   // leg against its real gamma market. One leg resolved against the pick kills
   // the parlay -> deterministic LOSS in hours, freeing the slot, instead of
   // the 7-day timeout. WINS are never decided here — only REDEEM proves a win.
-  const legCache = new Map<string, Awaited<ReturnType<typeof searchMarketByQuestion>>>();
+  // Legs already known to be resolved: FREE, no API call, ever again.
+  const cachedLegs = new Map(
+    db
+      .select()
+      .from(comboLegResolutions)
+      .all()
+      .map((r) => [r.question, r]),
+  );
+  const tickCache = new Map<string, Awaited<ReturnType<typeof searchMarketByQuestion>>>();
   let legLookups = 0;
+  let cacheHits = 0;
   for (const t of openCombos) {
     if (settledIds.has(t.id)) continue;
     const legTitles = splitComboLegs(t.marketQuestion);
@@ -268,7 +289,27 @@ runScript("combo:tick", async (db) => {
     let budgetHit = false;
     for (const leg of legTitles) {
       const key = leg.trim().toLowerCase();
-      let market = legCache.get(key);
+
+      const hit = cachedLegs.get(key);
+      if (hit) {
+        cacheHits++;
+        legs.push({
+          question: leg,
+          resolved: true, // only final resolutions are ever written to the cache
+          endDateMs: hit.endDateMs,
+          outcome: isAffirmativeLeg(leg)
+            ? judgeAffirmativeLeg({
+                closed: true,
+                umaResolutionStatus: "resolved",
+                outcomes: hit.outcomesJson,
+                outcomePrices: hit.outcomePricesJson,
+              })
+            : "unknown",
+        });
+        continue;
+      }
+
+      let market = tickCache.get(key);
       if (market === undefined) {
         if (legLookups >= MAX_LEG_LOOKUPS_PER_TICK) {
           budgetHit = true;
@@ -283,11 +324,25 @@ runScript("combo:tick", async (db) => {
           legs.push({ question: leg, resolved: null, endDateMs: null, outcome: "unknown" });
           continue;
         }
-        legCache.set(key, market);
+        tickCache.set(key, market);
+      }
+
+      const resolved = market ? Boolean(market.closed && market.umaResolutionStatus === "resolved") : null;
+      // Persist ONLY final resolutions — an open market must stay re-checkable.
+      if (resolved === true && market && !cachedLegs.has(key)) {
+        const row = {
+          question: key,
+          endDateMs: market.endDateMs,
+          outcomesJson: market.outcomes,
+          outcomePricesJson: market.outcomePrices,
+          resolvedAt: now,
+        };
+        db.insert(comboLegResolutions).values(row).onConflictDoNothing().run();
+        cachedLegs.set(key, row);
       }
       legs.push({
         question: leg,
-        resolved: market ? Boolean(market.closed && market.umaResolutionStatus === "resolved") : null,
+        resolved,
         endDateMs: market?.endDateMs ?? null,
         // Only "Will …?" legs carry a readable side; everything else stays unknown.
         outcome: market && isAffirmativeLeg(leg) ? judgeAffirmativeLeg(market) : "unknown",
@@ -321,7 +376,10 @@ runScript("combo:tick", async (db) => {
     }
   }
 
-  log.info(`combo tick: ${opened} copied, ${settled} settled (${legLookups} leg lookups), ${openCount} open`);
+  log.info(
+    `combo tick: ${opened} copied, ${settled} settled, ${openCount}/${MAX_OPEN_COMBOS} open ` +
+      `(legs: ${cacheHits} cached / ${legLookups} fetched)`,
+  );
 });
 
 async function tg(html: string): Promise<void> {

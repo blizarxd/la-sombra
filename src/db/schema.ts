@@ -381,3 +381,24 @@ export const controlSettings = sqliteTable("control_settings", {
   liveStakeUsd: real("live_stake_usd").notNull().default(5),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * 🧩 Permanent cache of a combo LEG's resolution (added 2026-07-16).
+ *
+ * Settling a combo means checking every leg against its real market. Without a
+ * durable cache, combo-tick re-fetched the SAME legs from gamma every 20-minute
+ * tick forever — so a per-tick lookup budget got burned on games that finished
+ * days ago, and combos at the back of the queue were never evaluated at all.
+ * A leg that is closed + uma-resolved is FINAL, so it is written here once and
+ * never fetched again; only still-open legs cost a call. That is what lets the
+ * book hold many more open combos without settlement falling behind.
+ */
+export const comboLegResolutions = sqliteTable("combo_leg_resolutions", {
+  /** The leg's exact question text, lowercased — that is how combo titles key it. */
+  question: text("question").primaryKey(),
+  endDateMs: integer("end_date_ms"),
+  /** Raw gamma arrays, kept verbatim so the verdict logic stays in one place. */
+  outcomesJson: text("outcomes_json"),
+  outcomePricesJson: text("outcome_prices_json"),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }).notNull(),
+});

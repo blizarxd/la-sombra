@@ -38,7 +38,8 @@ export default function CombosPage() {
           paga solo si TODAS aciertan. Minamos las billeteras de la <b>Combo Cup</b> de Polymarket y copiamos en
           papel los combos de las que tienen <b>cashflow combo positivo a 30 días</b> — salir una vez en el
           leaderboard no basta (eso es pura suerte sobreviviente). Banda del precio combinado 2¢–50¢ (2x–50x),
-          tamaño fijo $5, máx. 30 abiertos. Solo papel — nada de aquí toca los otros libros.
+          tamaño fijo $5, máx. 120 abiertos (y máx. 5 por billetera, para que un solo apostador no se coma el libro).
+          Solo papel — nada de aquí toca los otros libros.
         </p>
       </header>
 
