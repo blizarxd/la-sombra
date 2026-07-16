@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, lt } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { decisionJournal, eliteRoster, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
@@ -106,6 +106,37 @@ runScript("score:trades", async (db) => {
   const { rules: tradeRules } = getActiveRules(db, "trade"); // 🔁 quota-scalper book's own rules
   const { rules: cryptoRules } = getActiveRules(db, "crypto"); // ₿ crypto book's own rules
   const control = getControlSettings(db); // manual ⚡ live on/off + stake (paper only)
+
+  // --- Expire signals too old to have acted on (added 2026-07-16) ---
+  // This scorer walks the unscored queue OLDEST-FIRST, `batch` at a time, and
+  // every signal costs 2 upstream calls (market + book). That is fine while the
+  // queue is short. It is fatal once the queue is long: the scorer spends its
+  // whole budget on dead signals from days ago and NEVER reaches the ones from
+  // minutes ago. On 2026-07-16 that killed the live book outright — inPlay is
+  // only set here, at scoring time, so in-play bets that were never reached
+  // stayed unclassified and the live book logged ZERO signals for a full day
+  // while games were running. It also poisoned the journal with decisions on
+  // markets that had ALREADY RESOLVED ("resolves in -38.8h").
+  //
+  // Judging a signal we could never have acted on is not data, it is a
+  // counterfactual: it invents a decision at a price we never saw and pollutes
+  // the bot-vs-blind-copy benchmark with it. So drop them, cheaply and in bulk
+  // (no API calls), and keep the budget for signals still live enough to copy.
+  // They stay in the DB as scored-with-no-journal-entry, which is exactly the
+  // queryable signature of "seen but never judged".
+  const STALE_SIGNAL_HOURS = 6;
+  const staleBefore = new Date(Date.now() - STALE_SIGNAL_HOURS * 3600_000);
+  const expired = db
+    .update(observedTrades)
+    .set({ scored: true })
+    .where(and(eq(observedTrades.scored, false), lt(observedTrades.timestamp, staleBefore)))
+    .run();
+  if (expired.changes > 0) {
+    log.warn(
+      `expired ${expired.changes} unscored signals older than ${STALE_SIGNAL_HOURS}h — too late to copy, not judged. ` +
+        `A large number here means the scorer is falling behind live inflow.`,
+    );
+  }
 
   const pending = db
     .select()
