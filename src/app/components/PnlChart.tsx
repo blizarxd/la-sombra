@@ -171,6 +171,13 @@ export function PnlChart({
   const priceTicks = moneyTicks(minY, maxY);
   const timeTicks = [minX, minX + spanX / 4, minX + spanX / 2, minX + (3 * spanX) / 4, maxX];
 
+  // Built once and shared by the fill pass and the line pass — they must trace
+  // the exact same geometry.
+  const paths: Record<string, string> = {};
+  for (const s of shown) {
+    paths[s.key] = s.points.map((p, i) => `${i === 0 ? "M" : "L"}${px(p.t).toFixed(1)},${py(p.pnl).toFixed(1)}`).join(" ");
+  }
+
   const hoverT = hoverX != null ? minX + ((hoverX - PAD.l) / plotW) * spanX : null;
   const readouts =
     hoverT != null
@@ -286,30 +293,38 @@ export function PnlChart({
             </text>
           ))}
 
-          {/* marked first, so the realized scorecard always sits on top */}
+          {/* FILLS FIRST — every fill sits behind EVERY line.
+              Painting realized's area inside its own group put it on top of the
+              marked line, and the red veil erased the gray wherever the book was
+              underwater: the line looked like it stopped mid-chart (reported
+              2026-07-16). Fills are background; lines are the data. */}
+          {shown
+            .filter((s) => s.key === "realized")
+            .map((s) => {
+              const d = paths[s.key];
+              const area = `${d} L${px(s.points[s.points.length - 1].t).toFixed(1)},${zeroY.toFixed(1)} L${px(s.points[0].t).toFixed(1)},${zeroY.toFixed(1)} Z`;
+              return <path key={`area-${s.key}`} className="pnl-area" d={area} fill="url(#pnl-polarity-fill)" />;
+            })}
+
+          {/* then the lines — marked under realized, both fully above every fill */}
           {shown
             .slice()
             .sort((a) => (a.key === "realized" ? 1 : -1))
             .map((s) => {
-              const d = s.points.map((p, i) => `${i === 0 ? "M" : "L"}${px(p.t).toFixed(1)},${py(p.pnl).toFixed(1)}`).join(" ");
               const isRealized = s.key === "realized";
-              const area = `${d} L${px(s.points[s.points.length - 1].t).toFixed(1)},${zeroY.toFixed(1)} L${px(s.points[0].t).toFixed(1)},${zeroY.toFixed(1)} Z`;
-              const len = Math.round(plotW * 1.8);
               return (
-                <g key={s.key}>
-                  {isRealized ? <path className="pnl-area" d={area} fill="url(#pnl-polarity-fill)" /> : null}
-                  <path
-                    className="pnl-line"
-                    d={d}
-                    fill="none"
-                    stroke={isRealized ? "url(#pnl-polarity)" : MUTED}
-                    strokeWidth={isRealized ? 2 : 1.5}
-                    strokeOpacity={isRealized ? 1 : 0.5}
-                    strokeLinejoin="round"
-                    strokeLinecap="round"
-                    style={{ ["--pnl-len" as string]: String(len) }}
-                  />
-                </g>
+                <path
+                  key={`line-${s.key}`}
+                  className="pnl-line"
+                  d={paths[s.key]}
+                  fill="none"
+                  stroke={isRealized ? "url(#pnl-polarity)" : MUTED}
+                  strokeWidth={isRealized ? 2 : 1.5}
+                  strokeOpacity={isRealized ? 1 : 0.7}
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  style={{ ["--pnl-len" as string]: String(Math.round(plotW * 1.8)) }}
+                />
               );
             })}
 
