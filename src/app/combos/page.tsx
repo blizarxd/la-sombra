@@ -38,7 +38,7 @@ export default function CombosPage() {
           paga solo si TODAS aciertan. Minamos las billeteras de la <b>Combo Cup</b> de Polymarket y copiamos en
           papel los combos de las que tienen <b>cashflow combo positivo a 30 días</b> — salir una vez en el
           leaderboard no basta (eso es pura suerte sobreviviente). Banda del precio combinado 2¢–50¢ (2x–50x),
-          tamaño fijo $5, máx. 15 abiertos. Solo papel — nada de aquí toca los otros libros.
+          tamaño fijo $5, máx. 30 abiertos. Solo papel — nada de aquí toca los otros libros.
         </p>
       </header>
 
@@ -177,9 +177,13 @@ export default function CombosPage() {
         <div>
           Notas honestas: (1) La entrada se copia al precio ejecutado de la billetera — los combos van por RFQ y no
           hay libro público, así que en real podríamos no conseguir esa misma cuota. (2) Un combo GANADO se detecta
-          cuando la billetera lo cobra (REDEEM, pago exacto); un cash-out se copia a su precio de venta; la PÉRDIDA
-          es una <b>heurística etiquetada</b>: 7 días sin cobro ni venta = pata fallada. (3) Si copiar combos no es
-          rentable, este libro lo mostrará en rojo — y eso también es un resultado. Nunca se envían órdenes reales.
+          cuando la billetera lo cobra (REDEEM, pago exacto); un cash-out se copia a su precio de venta. (3) La
+          PÉRDIDA se detecta <b>por patas</b>: cada pata del título es un mercado real, y si una resolvió en contra
+          el parlay entero está muerto — se anota la pérdida en horas, no en días. Esto <b>asume el lado afirmativo</b>
+          de cada pata («Will X win…?» = Sí), que es la convención abrumadora en combos; las patas ambiguas (O/U,
+          spreads) no se juzgan. Respaldo: 7 días sin cobro ni venta = pata fallada (heurística etiquetada). (4) Si
+          copiar combos no es rentable, este libro lo mostrará en rojo — y eso también es un resultado. Nunca se
+          envían órdenes reales.
         </div>
       </div>
     </div>

@@ -1,7 +1,8 @@
 import { and, desc, eq, gt, gte, like } from "drizzle-orm";
 import { decisionJournal, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
-import { fetchWalletActivity } from "@/lib/adapters";
+import { fetchWalletActivity, searchMarketByQuestion } from "@/lib/adapters";
 import { comboLegCount, decideComboSettlement, type ComboActivityEvent } from "@/lib/combos";
+import { isAffirmativeLeg, judgeAffirmativeLeg, splitComboLegs } from "@/lib/comboLegs";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { closePaperTradeAtPrice, openPaperTradeAtPrice, resolvePaperTrade } from "@/lib/paper/engine";
@@ -20,6 +21,8 @@ import { runScript } from "./_runner";
  * Settlement (combos have no public order book — they trade via RFQ):
  * - source wallet REDEEMs the combo  -> every leg hit -> WON (payout = shares).
  * - source wallet SELLs (cash-out)   -> we copy the exit at their price.
+ * - a LEG resolved against the pick  -> the parlay is dead -> LOST (leg-based,
+ *   see comboLegs.ts — hours instead of the 7-day wait, assumption labeled).
  * - COMBO_LOSS_TIMEOUT (7d) passes   -> assume a leg missed -> LOST.
  *   The timeout is an honest, LABELED heuristic (page + journal note it).
  *
@@ -29,8 +32,16 @@ import { runScript } from "./_runner";
 const COPY_LOOKBACK_MS = 26 * 3600 * 1000; // catch combos placed since ~yesterday's tick
 const MIN_WALLET_STAKE_USD = 10; // Cup-qualifying stake = real conviction, not dust
 const MAX_LEGS = 12; // beyond this it's a lottery ticket regardless of price
-const MAX_OPEN_COMBOS = 15; // capital-parked ceiling for the whole book
+// Raised 15 -> 30 on 2026-07-16 (Johan): the book filled to 15/15 in its first
+// real day and stopped taking signals. Leg-based loss settlement (below) now
+// frees dead slots in hours instead of 7 days, so a bigger ceiling no longer
+// means capital parked forever in losers. Still $5 fixed = $150 max at risk.
+const MAX_OPEN_COMBOS = 30; // capital-parked ceiling for the whole book
 const MAX_OPEN_PER_WALLET = 5; // diversification: one prolific bettor can't eat the whole book
+// Leg-check budget per tick: each never-seen leg costs one public-search call.
+// Questions repeat across combos (same games), so a small per-tick budget with
+// a cache covers the whole book within a couple of ticks.
+const MAX_LEG_LOOKUPS_PER_TICK = 40;
 const MIN_COMBO_BUYS_30D = 3; // eligibility: enough combo history to judge
 const ELIGIBLE_WALLET_LIMIT = 12; // API friendliness: top wallets by combo net PnL
 
@@ -81,6 +92,7 @@ runScript("combo:tick", async (db) => {
   let opened = 0;
   let settled = 0;
   let openCount = openCombos.length;
+  const settledIds = new Set<string>();
 
   for (const [address, info] of wallets) {
     let events: ComboActivityEvent[];
@@ -116,6 +128,7 @@ runScript("combo:tick", async (db) => {
       }
       settled++;
       openCount--;
+      settledIds.add(t.id);
     }
 
     // --- copy new combos from eligible wallets ---
@@ -199,7 +212,7 @@ runScript("combo:tick", async (db) => {
           risksJson: JSON.stringify([
             "all legs must hit — a single miss loses the full stake",
             "no public book: entry copied at the wallet's executed RFQ price",
-            "loss detection is a labeled 7-day-no-redeem heuristic",
+            "loss: a leg resolved against the pick (assumes affirmative side) or 7-day-no-redeem timeout",
           ]),
           simulatedPositionSize: rules.minPositionSize,
           blockedGate: null,
@@ -235,7 +248,54 @@ runScript("combo:tick", async (db) => {
       }
     }
   }
-  log.info(`combo tick: ${opened} copied, ${settled} settled, ${openCount} open`);
+  // --- leg-based LOSS pass (see comboLegs.ts) ---------------------------------
+  // For combos the wallet neither redeemed nor sold: judge each affirmative
+  // leg against its real gamma market. One leg resolved against the pick kills
+  // the parlay -> deterministic LOSS in hours, freeing the slot, instead of
+  // the 7-day timeout. WINS are never decided here — only REDEEM proves a win.
+  const legCache = new Map<string, Awaited<ReturnType<typeof searchMarketByQuestion>>>();
+  let legLookups = 0;
+  for (const t of openCombos) {
+    if (settledIds.has(t.id)) continue;
+    const legs = splitComboLegs(t.marketQuestion);
+    if (legs.length < 2) continue;
+    let lostLeg: string | null = null;
+    for (const leg of legs) {
+      if (!isAffirmativeLeg(leg)) continue; // side unreadable from the title — never judge it
+      const key = leg.trim().toLowerCase();
+      let market = legCache.get(key);
+      if (market === undefined) {
+        if (legLookups >= MAX_LEG_LOOKUPS_PER_TICK) break; // budget spent — next tick continues
+        legLookups++;
+        try {
+          market = await searchMarketByQuestion(leg);
+        } catch (err) {
+          // Real API failure: skip this leg this tick, never guess a verdict.
+          log.warn(`leg search failed for "${leg.slice(0, 60)}": ${err instanceof Error ? err.message : err}`);
+          continue;
+        }
+        legCache.set(key, market);
+      }
+      if (market && judgeAffirmativeLeg(market) === "lost") {
+        lostLeg = leg;
+        break;
+      }
+    }
+    if (!lostLeg) continue;
+    const { realizedPnl } = resolvePaperTrade(db, t, false, now);
+    settled++;
+    openCount--;
+    settledIds.add(t.id);
+    const label = (t.marketQuestion ?? t.marketId).slice(0, 120);
+    log.info(`combo LOST (leg resolved against) ${t.id.slice(0, 8)}… $${realizedPnl.toFixed(2)} — "${lostLeg.slice(0, 60)}"`);
+    await tg(
+      `❌ <b>COMBO PERDIDO</b> (papel) 🧩\n${escapeHtml(label)}\n` +
+        `PnL $${realizedPnl.toFixed(2)} — pata resuelta en contra: «${escapeHtml(lostLeg.slice(0, 80))}»\n` +
+        `(liquidación por patas: asume el lado afirmativo de cada pata, ver /combos)`,
+    );
+  }
+
+  log.info(`combo tick: ${opened} copied, ${settled} settled (${legLookups} leg lookups), ${openCount} open`);
 });
 
 async function tg(html: string): Promise<void> {

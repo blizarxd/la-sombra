@@ -313,6 +313,44 @@ export async function fetchMarketsByTag(
   return (data as any[]).map(toMarketInfo);
 }
 
+/**
+ * Find one market by its EXACT question text via gamma public-search
+ * (verified live 2026-07-16: searching a combo leg like "Will Argentina win
+ * on 2026-07-15?" returns its event with the market inside, carrying
+ * closed/umaResolutionStatus/outcomePrices). Used by leg-based combo
+ * settlement. Returns null when no exact match exists — the caller must
+ * treat that as "cannot judge", never as a verdict.
+ */
+export async function searchMarketByQuestion(question: string): Promise<{
+  question: string | null;
+  closed: boolean;
+  umaResolutionStatus: string | null;
+  outcomes: string | null;
+  outcomePrices: string | null;
+} | null> {
+  const url = `${GAMMA_API()}/public-search?q=${encodeURIComponent(question)}`;
+  const data = await httpGet("polymarket-gamma-api", url);
+  const events = (data as any)?.events;
+  if (!Array.isArray(events)) {
+    throw new AdapterError("polymarket-gamma-api", url, 200, "unexpected public-search shape (no events array)");
+  }
+  const want = question.trim().toLowerCase();
+  for (const ev of events) {
+    for (const m of ev?.markets ?? []) {
+      if (String(m?.question ?? "").trim().toLowerCase() === want) {
+        return {
+          question: (m.question ?? null) as string | null,
+          closed: Boolean(m.closed),
+          umaResolutionStatus: (m.umaResolutionStatus ?? null) as string | null,
+          outcomes: typeof m.outcomes === "string" ? m.outcomes : JSON.stringify(m.outcomes ?? null),
+          outcomePrices: typeof m.outcomePrices === "string" ? m.outcomePrices : JSON.stringify(m.outcomePrices ?? null),
+        };
+      }
+    }
+  }
+  return null;
+}
+
 function toMarketInfo(row: any): MarketInfo {
   const outcomes = parseJsonArray(row.outcomes).map(String);
   const clobTokenIds = parseJsonArray(row.clobTokenIds).map(String);
