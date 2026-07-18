@@ -1,11 +1,13 @@
 import { and, desc, eq, lt } from "drizzle-orm";
 import type { Db } from "@/db/client";
-import { decisionJournal, eliteRoster, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
+import { decisionJournal, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { categorizeMarket } from "@/lib/category";
 import { effectiveMinEntryPrice, isCategoryExcluded } from "@/lib/categoryEntryBand";
+import { isCremaGoldCell } from "@/lib/cremaCells";
 import { ELITE_POSITION_SIZE } from "@/lib/elite";
+import { hourInAppTz } from "@/lib/format";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
 import { getControlSettings } from "@/lib/control";
@@ -31,19 +33,22 @@ async function maybeOpenEliteMirror(
     journalId: string;
     walletAddress: string;
     marketId: string;
-    tokenId: string | null;
     marketQuestion: string | null;
+    tokenId: string | null;
     outcome: string | null;
     book: OrderBook;
     now: Date;
   },
 ): Promise<void> {
-  const onRoster = db
-    .select({ id: eliteRoster.id })
-    .from(eliteRoster)
-    .where(and(eq(eliteRoster.arm, params.arm), eq(eliteRoster.walletAddress, params.walletAddress)))
-    .get();
-  if (!onRoster) return;
+  // NEW GATE (2026-07-18): mirror when the trade lands in a MATRIX GOLD CELL,
+  // not when the source wallet is a top-10-weekly winner. La Crema still only
+  // mirrors trades an arm ALREADY decided to copy (it invents no entry) — it
+  // just keeps the ones in a proven-gold cell, from ANY arm. See cremaCells.ts.
+  const entryPrice = params.book.bestAsk;
+  if (entryPrice == null) return; // no price = can't place a cell; leave it to the arm
+  const category = categorizeMarket(params.marketQuestion);
+  const verdict = isCremaGoldCell(category, hourInAppTz(params.now), entryPrice);
+  if (!verdict.gold) return;
 
   const dupConds = [
     eq(paperTrades.status, "open"),
@@ -67,13 +72,13 @@ async function maybeOpenEliteMirror(
     now: params.now,
   });
   if (opened.opened) {
-    log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} copy of ${params.arm}'s top-10 wallet ${params.walletAddress.slice(0, 10)}…`);
+    log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} gold-cell copy from ${params.arm} — ${verdict.reason}`);
     if (telegramConfigured()) {
       const q = escapeHtml((params.marketQuestion ?? params.marketId).slice(0, 120));
       await sendTelegramMessage(
         `🏆 <b>LA CREMA — copia en papel</b>\n${q}\n` +
-          `Billetera ${params.walletAddress.slice(0, 10)}… (top-10 semanal de ${params.arm}) · entrada $${ELITE_POSITION_SIZE.toFixed(2)}\n` +
-          `(nos copiamos a nosotros mismos — solo lo mejor de lo mejor, libro aparte)`,
+          `Celda de oro: ${escapeHtml(verdict.reason)} · vía ${params.arm} · entrada $${ELITE_POSITION_SIZE.toFixed(2)}\n` +
+          `(la matriz manda: solo copiamos los trades en su mejor franja/banda/categoría — libro aparte)`,
       );
     }
   }

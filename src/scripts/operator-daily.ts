@@ -58,7 +58,8 @@ const DAILY_STEPS: Array<{ file: string; args?: string[] }> = [
   { file: "scan-combo-leaderboard.ts" }, // 🧩 mine the Combo Cup board
   { file: "profile-combo-wallets.ts" }, // 🧩 combo cashflow scorecards (eligibility gate)
   { file: "scan-wallets.ts", args: ["--limit", "50"] }, // profile a fresh batch, gentle on the API
-  { file: "update-elite-roster.ts" }, // 🏆 refresh "la crema" — top-10-weekly per arm
+  // (update-elite-roster.ts retired 2026-07-18: La Crema is now matrix-gold-cell
+  //  driven, not top-10-wallet driven — the roster no longer gates any entry.)
   { file: "manual-tune-2026-07-15.ts" }, // one-off, idempotent, self-skips once applied
   { file: "update-rules.ts" }, // self-improve CORE on core evidence
   { file: "update-rules-live.ts" }, // self-improve LIVE on live evidence

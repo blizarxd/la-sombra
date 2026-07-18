@@ -1,19 +1,11 @@
-import Link from "next/link";
 import { getDb } from "@/db/client";
 import { getEliteBookStats, getRealizedPnlSeries } from "@/lib/queries";
-import { money, pct, shortAddr, when } from "@/lib/format";
-import { Card, Empty, Stat, Td, Th } from "../components/ui";
+import { money, pct, when } from "@/lib/format";
+import { Card, Stat, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
 import { PaginatedTradesTable, type TradeRowData } from "../components/PaginatedTradesTable";
 
 export const dynamic = "force-dynamic";
-
-const ARM_LABELS: Record<string, string> = {
-  core: "Pre-partido",
-  live: "En Vivo",
-  trade: "Cuota",
-  crypto: "Cripto",
-};
 
 export default function ElitePage() {
   const db = getDb();
@@ -35,20 +27,18 @@ export default function ElitePage() {
     status: t.status,
   }));
 
-  // "live" retired as an elite source 2026-07-15 (see update-elite-roster.ts) — its
-  // roster stays empty on purpose, so it's dropped from display instead of a dead card.
-  const arms = ["core", "trade", "crypto"] as const;
-
   return (
     <div className="space-y-4">
       <header>
-        <h1 className="text-xl font-bold">🏆 La Crema — solo lo mejor de lo mejor</h1>
+        <h1 className="text-xl font-bold">🏆 La Crema — la matriz manda</h1>
         <p className="text-sm text-mist">
-          Sexto libro. No tiene reglas de entrada propias: cuando Pre-partido, En Vivo, Cuota o Cripto YA deciden
-          copiar una jugada (ya pasó el filtro de ese brazo), y la billetera de origen es <b>top-10 semanal de ESE
-          brazo</b> por PnL realizado en papel, La Crema abre el mismo trade en su propio libro. Nos copiamos a
-          nosotros mismos, pero solo la porción confirmada ganadora. Roster se recalcula 1 vez al día — solo
-          billeteras con PnL positivo la última semana entran; una mala semana y caen del roster solas. $5 fijo.
+          Sexto libro, <b>reconstruido el 18-jul</b>. No tiene reglas de entrada propias: cuando Pre-partido, En Vivo,
+          Cuota o Cripto YA deciden copiar una jugada, La Crema la espeja <b>solo si cae en una celda de oro de la
+          matriz</b> — no importa la billetera. Celdas de oro (estrictas, sobrevivieron varios cortes):{" "}
+          <b>esports fuera de la noche</b>, o <b>banda 60-89¢ en la Mañana (08-11) o la Tarde (16-19)</b>. Antes seguía
+          a las top-10 billeteras de cada brazo y fracasó (una billetera puede ser top-10 y aun así apostar en mala
+          franja). Ahora es un experimento limpio: si La Crema se pone verde mientras los brazos sangran, la matriz
+          manda de verdad. $5 fijo, libro aparte.
         </p>
       </header>
 
@@ -61,11 +51,7 @@ export default function ElitePage() {
         />
         <Stat label="Tasa de acierto" value={pct(elite.winRate)} hint={`${elite.settledCount} liquidadas`} />
         <Stat label="Posiciones abiertas" value={String(elite.openCount)} />
-        <Stat
-          label="Roster actual"
-          value={String(elite.rosterSize)}
-          hint={elite.lastRefreshedAt ? `actualizado ${when(elite.lastRefreshedAt)}` : "aún no se ha calculado"}
-        />
+        <Stat label="Filtro" value="Celdas de oro" hint="matriz manda · esports + banda 60-89¢ mañana/tarde" />
       </div>
 
       <Card title="PnL realizado de la crema (libro paralelo)">
@@ -76,55 +62,43 @@ export default function ElitePage() {
         <PaginatedTradesTable
           rows={rows}
           columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status"]}
-          emptyHint="Aún no hay copias. La crema abre cuando uno de los otros 4 brazos copia a una billetera que está en su top-10 semanal — necesita que el roster se calcule (1 vez al día) y que ese brazo genere una señal fresca de una billetera en el roster."
+          emptyHint="Aún no hay copias con el diseño nuevo. La crema abre cuando uno de los brazos copia un trade que cae en una celda de oro de la matriz (esports fuera de la noche, o banda 60-89¢ en Mañana/Tarde). Se llena a medida que llegan señales frescas en esas celdas."
         />
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {arms.map((arm) => {
-          const wallets = elite.rosterByArm.get(arm) ?? [];
-          return (
-            <Card key={arm} title={`Top-10 semanal — ${ARM_LABELS[arm]}`}>
-              {wallets.length === 0 ? (
-                <Empty>Aún sin roster para este brazo (necesita copias liquidadas con PnL positivo en los últimos 7 días).</Empty>
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr>
-                        <Th className="text-right">#</Th>
-                        <Th>Billetera</Th>
-                        <Th className="text-right">PnL 7d</Th>
-                        <Th className="text-right">Trades</Th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {wallets.map((w) => (
-                        <tr key={w.id} className="border-t border-edge">
-                          <Td className="text-right text-mist">{w.rank}</Td>
-                          <Td>
-                            <Link href={`/wallets/${w.walletAddress}`} className="text-accent hover:underline">
-                              {shortAddr(w.walletAddress)}
-                            </Link>
-                          </Td>
-                          <Td className="text-right text-profit">{money(w.weeklyPnl, { sign: true })}</Td>
-                          <Td className="text-right">{w.weeklyTradeCount}</Td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-          );
-        })}
-      </div>
+      <Card title="🥇 Celdas de oro — qué espeja La Crema (y por qué)">
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr>
+                <Th>Celda de oro</Th>
+                <Th>Evidencia de la matriz (varios cortes)</Th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="border-t border-edge">
+                <Td><b>🎮 Esports</b>, cualquier hora menos la noche (20-23)</Td>
+                <Td className="text-mist">Verde transversal: pre +7,2% · vivo +6,0% · cuota +9,5% · mañana +25,4%. Rojo solo de noche (−21%).</Td>
+              </tr>
+              <tr className="border-t border-edge">
+                <Td><b>Banda 60-89¢</b> en Mañana (08-11) o Tarde (16-19)</Td>
+                <Td className="text-mist">Bandas altas verdes (pre 60-74¢ +10,9%/70% · deportes 75-89¢ +10,6%/83%) en las dos franjas verdes.</Td>
+              </tr>
+              <tr className="border-t border-edge">
+                <Td className="text-mist">Excluidas siempre: Clima, Cripto</Td>
+                <Td className="text-mist">Rojas en toda la matriz (clima −38% vivo · cripto −11% cuota).</Td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </Card>
 
       <div className="text-xs text-mist">
-        Nota honesta: esto no filtra señales nuevas — es un experimento sobre si SEGUIR SOLO A GANADORES CONFIRMADOS
-        (sin analizar cada trade individual) rinde mejor que el filtrado caso-por-caso que hacen los otros brazos.
-        Si el rendimiento de la crema no supera al del brazo de origen, la respuesta es que la selección de
-        billetera por sí sola no basta — y eso también es un resultado. Solo papel, nunca órdenes reales.
+        Nota honesta: La Crema no filtra señales nuevas por su cuenta — espeja lo que los brazos ya deciden copiar,
+        pero SOLO cuando cae en una celda de oro. Es un experimento directo sobre la tesis "la matriz manda": si este
+        libro se pone verde mientras los brazos de origen sangran, concentrar en las mejores celdas SÍ suma. Si no
+        supera a los brazos, la matriz por sí sola no basta — y eso también es un resultado. El histórico anterior al
+        18-jul es del diseño viejo (top-10 billeteras, que fracasó: −$137, 37% acierto). Solo papel, nunca órdenes reales.
       </div>
     </div>
   );
