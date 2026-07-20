@@ -1,65 +1,57 @@
 import type { CategoryKey } from "./category";
 
 /**
- * 🏆 La Crema — GOLD-CELL gate (rebuilt 2026-07-18).
+ * 🏆 La Crema — la ESTRATEGIA HÍBRIDA: el mejor oro de las matrices.
  *
- * The old La Crema mirrored an arm's copy when the SOURCE WALLET was a top-10
- * weekly winner of that arm. It failed hard (-$137 realized, 37% win, 87
- * settled): a wallet can be "top-10 this week" and still bet in a losing slot,
- * so the roster carried the arm's bad cells straight into La Crema.
+ * Rebuilt 2026-07-18 (matrix cells instead of top-10 wallets), then re-derived
+ * from scratch on 2026-07-20 against a FULL matrix scan — every cell of every
+ * matrix, in all four windows (todo / 30d / 15d / 7d), keeping only what stays
+ * positive in EVERY window with n≥30. Paper only: the real-money sample
+ * (n=11-13) is far too small to steer a rule set, and the previous version of
+ * this file leaned on it too hard.
  *
- * New design, per Johan: the filter is the MATRIX CELL, not the wallet. La
- * Crema still mirrors what the arms already decided to copy — it invents no
- * entry of its own — but it only keeps the copy when the trade lands in a cell
- * the matrix has proven gold ACROSS MULTIPLE cuts. That turns La Crema into a
- * clean experiment: if "gold cells only, any arm" goes green while the arms
- * themselves bleed, the matrix thesis is proven with a real ledger.
+ * What the scan found, ranked by ROI with its sample:
  *
- * STRICT on purpose — La Crema is "lo mejor de lo mejor", so this is the
- * high-conviction intersection, not every green cell:
+ *   MAÑANA 08–11 is the dominant signal in the entire dataset — gold in every
+ *   arm at once: Pre-partido +21.6% (n=192), En Vivo +6.0% (n=458), La Crema
+ *   +15.1% (n=84), esports +14.8% (n=270), and on four separate weekdays
+ *   (lun +21.9% · mié +31.6% · vie +16.0% · dom +20.7%). Nothing else in the
+ *   matrix repeats across that many independent cuts.
  *
- *   1. ESPORTS, any hour EXCEPT night (20–23).
- *      Esports is the one edge that repeats in every cut: green in pre (+7.2%),
- *      live (+6.0%), cuota (+9.5%) and in nearly every band and hour — the only
- *      slot it turns red is night (20–23: −21.4%). So esports is gold all day
- *      but night. (This deliberately KEEPS esports at midday, +15.2% n121 —
- *      midday is bad for sports, not for esports.)
+ *   ESPORTS ≤29¢ +21.7% (n=89, 7d +24.6%) and ESPORTS EN MADRUGADA 00–03
+ *   +20.3% (n=87) are the two standalone esports cells that survive every
+ *   window. 30–44¢ esports did NOT survive (it flips negative in one), so the
+ *   cheap cut is 29¢ — not the 44¢ of the previous version, and certainly not
+ *   the 60¢ before that.
  *
- *   2. HIGH BAND 60–89¢ in MORNING (08–11) or TARDE (16–19).
- *      The high bands are green across arms (pre 60–74¢ +10.9%/70% wins,
- *      deportes 75–89¢ +10.6%/83% wins) AND morning/tarde are the two green
- *      windows (deportes morning +15.3%, tarde +8.6%). Their intersection is
- *      the sweet spot for everything that isn't esports.
+ * DROPPED on this pass — both were mine, both were wrong:
+ *   · TARDE 16–19, previously half the band rule: the scan shows tarde is NOT
+ *     a consistent winner by arm (Cuota −12.5%, En Vivo +1.9%). Its only strong
+ *     cell is "tarde × jueves" — a single weekday, almost certainly noise.
+ *   · The standalone 60–89¢ band rule: 60–74¢ × Pre is +8.1% (n=293) but fades
+ *     to +1.6% at 7d, and the genuinely golden part of it already sits inside
+ *     the morning window that rule 1 now takes wholesale.
  *
- * Hard excludes (never gold, even if a rule above would match):
- *   - Category clima (−38% live) and cripto (−11% cuota) — both bleed everywhere.
- *
- * Everything else — low bands outside esports, midday sports, dawn, night —
- * is left to the arms; La Crema does not touch it.
+ * Hard excludes: clima and cripto bleed in every arm and every window.
  */
 
-const BAND_LO = 0.6; // inclusive — rule 2 floor
-const BAND_HI = 0.9; // exclusive — rule 2 ceiling
+const MORNING = [8, 11] as const; // 08–11 — the dominant window
+const MADRUGADA = [0, 3] as const; // 00–03 — esports only
+const NIGHT = [20, 23] as const; // 20–23 — esports turns red here
 /**
- * Rule 1 ceiling. NOT 0.60 — the 45–59¢ "coin flip" band is a TRAP, and it is
- * the one thing paper and Johan's real money agree on completely:
- *   · real money 2026-07-20: esports 45–59¢ 3/7 (−19.6%), deportes 45–59¢ 3/6 (−13.2%)
- *   · paper matrix: core 45–59¢ −7.6%, esports 45–59¢ only +6% (weakest cheap band)
- * The paper's actual esports gold is ≤44¢ (≤29¢ +27.9%, 30–44¢ +22.9%). Setting
- * this at 0.60 on 2026-07-19 swept the trap band in with the gold — corrected
- * 2026-07-20 once the real-money split made the boundary obvious.
+ * Cheap-esports ceiling: 29¢ (exclusive at 0.30). That is the cell that
+ * survives every window (+21.7%, 7d +24.6%). This threshold walked
+ * 0.60 → 0.45 → 0.30 as each looser cut failed its own forward-test; the
+ * 45–59¢ "coin flip" band in particular loses in paper AND in real money.
  */
-const ESPORTS_MAX = 0.45; // exclusive
-const MORNING = [8, 11] as const; // 08–11
-const TARDE = [16, 19] as const; // 16–19
-const NIGHT = [20, 23] as const; // 20–23
+const ESPORTS_CHEAP_MAX = 0.3; // exclusive
 
 const EXCLUDED_CATEGORIES: ReadonlySet<CategoryKey> = new Set<CategoryKey>(["clima", "cripto"]);
 
 const inWindow = (hour: number, [lo, hi]: readonly [number, number]) => hour >= lo && hour <= hi;
 
-/** Which gold rule fired — stored on the trade so each cell can be judged apart. */
-export type CremaRule = "esports-barato" | "banda-ventana";
+/** Which gold rule fired — stored on the trade so each cell is judged apart. */
+export type CremaRule = "mañana" | "esports-barato" | "esports-madrugada";
 
 export interface CremaVerdict {
   gold: boolean;
@@ -71,39 +63,31 @@ export interface CremaVerdict {
 export const CREMA_REBUILD_MS = Date.parse("2026-07-18T19:00:00Z"); // 15:00 Caracas
 
 /**
- * Is this trade in a La Crema gold cell? Pure — the arms supply category
- * (from the market question), the open hour in APP_TZ, and the entry price.
+ * Is this trade in a gold cell? Pure — the arms supply category (from the
+ * market question), the open hour in APP_TZ, and the entry price.
  */
 export function isCremaGoldCell(category: CategoryKey, hourInAppTz: number, entryPrice: number): CremaVerdict {
   if (EXCLUDED_CATEGORIES.has(category)) {
     return { gold: false, reason: `categoría ${category} excluida (roja en toda la matriz)` };
   }
 
-  // Rule 1 — esports CHEAP (≤44¢), all day but night.
-  //
-  // Tightened 2026-07-20 after the original "esports any band" rule survived
-  // only half its forward-test: esports LOW bands stayed gold in every window
-  // (all-time ≤29¢ +27.9%, 7d +26.0%; 30–44¢ +22.9% / +30.5%) but esports HIGH
-  // bands are red in every window (60–74¢ −1.3% / −3.6%; 75–89¢ −14.2% /
-  // −10.0%), and the first Crema measurement showed the same split (<60¢
-  // +$15.28 vs 60–89¢ −$10.92). The payoff structure explains it: cheap
-  // esports wins pay ~2x the loss, expensive ones win small and lose whole.
-  // High-band esports can still enter via rule 2 when it lands in the
-  // morning/tarde windows — that cell carries its own multi-cut evidence.
-  if (category === "esports" && entryPrice < ESPORTS_MAX && !inWindow(hourInAppTz, NIGHT)) {
+  // Rule 1 — MAÑANA 08-11, cualquier categoría. El oro más repetido del sistema.
+  if (inWindow(hourInAppTz, MORNING)) {
+    return { gold: true, rule: "mañana", reason: `Mañana 08-11 (h${hourInAppTz}) — oro transversal en todos los brazos` };
+  }
+
+  // Rule 2 — ESPORTS ≤29¢, cualquier hora menos la noche.
+  if (category === "esports" && entryPrice < ESPORTS_CHEAP_MAX && !inWindow(hourInAppTz, NIGHT)) {
     return {
       gold: true,
       rule: "esports-barato",
-      reason: `esports ≤44¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)`,
+      reason: `esports ≤29¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)`,
     };
   }
 
-  // Rule 2 — high band in the two green windows.
-  const highBand = entryPrice >= BAND_LO && entryPrice < BAND_HI;
-  const greenWindow = inWindow(hourInAppTz, MORNING) || inWindow(hourInAppTz, TARDE);
-  if (highBand && greenWindow) {
-    const win = inWindow(hourInAppTz, MORNING) ? "Mañana 08-11" : "Tarde 16-19";
-    return { gold: true, rule: "banda-ventana", reason: `banda ${Math.round(entryPrice * 100)}¢ en ${win} — celda de oro` };
+  // Rule 3 — ESPORTS en MADRUGADA 00-03, cualquier banda.
+  if (category === "esports" && inWindow(hourInAppTz, MADRUGADA)) {
+    return { gold: true, rule: "esports-madrugada", reason: `esports en Madrugada 00-03 (h${hourInAppTz})` };
   }
 
   return { gold: false, reason: `no es celda de oro (${category}, h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)` };

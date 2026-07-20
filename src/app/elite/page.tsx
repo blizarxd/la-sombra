@@ -33,11 +33,13 @@ export default function ElitePage() {
       pnl: t.status !== "open" ? t.realizedPnl : t.unrealizedPnl,
       status: t.status,
       reason:
-        t.goldRule === "esports-barato"
-          ? "🎮 esports ≤44¢"
-          : t.goldRule === "banda-ventana"
-            ? "💲 60-89¢ mañana/tarde"
-            : (t.goldRule ?? undefined),
+        t.goldRule === "mañana"
+          ? "☀️ mañana 08-11"
+          : t.goldRule === "esports-barato"
+            ? "🎮 esports ≤29¢"
+            : t.goldRule === "esports-madrugada"
+              ? "🌙 esports madrugada"
+              : (t.goldRule ?? undefined),
     }));
 
   const started = new Date(CREMA_REBUILD_MS);
@@ -50,7 +52,7 @@ export default function ElitePage() {
         <p className="text-sm text-mist">
           El sistema que seguimos: <b>solo el oro confirmado por el papel y la matriz</b>. Cuando cualquier brazo
           (Pre-partido, En Vivo, Cuota, Cripto) decide copiar una jugada, La Crema la espeja <b>solo si cae en una
-          celda de oro</b> — la billetera da igual, manda la celda. <b>$5 fijo</b> en todo, para que los datos sean
+          celda de oro</b> — la billetera da igual, manda la celda. Las celdas salen de un barrido completo de la matriz en 4 ventanas (todo/30d/15d/7d), quedándose solo con lo positivo en TODAS con n≥30. <b>$5 fijo</b> en todo, para que los datos sean
           comparables. Marcador desde el rediseño ({when(started)}, {days} día{days === 1 ? "" : "s"}); lo anterior es
           de un diseño retirado y está archivado abajo. Solo papel.
         </p>
@@ -65,7 +67,7 @@ export default function ElitePage() {
         />
         <Stat label="Tasa de acierto" value={pct(s.winRate)} hint={`${s.settledCount} liquidadas`} />
         <Stat label="Posiciones abiertas" value={String(s.openCount)} hint={`${s.count} copias en total`} />
-        <Stat label="Filtro de oro" value="2 celdas" hint="esports ≤44¢ · banda 60-89¢ mañana/tarde" />
+        <Stat label="Filtro de oro" value="3 celdas" hint="mañana 08-11 · esports ≤29¢ · esports madrugada" />
       </div>
 
       {elite.byRule.size > 0 ? (
@@ -85,11 +87,13 @@ export default function ElitePage() {
               {[...elite.byRule.entries()].map(([rule, r]) => (
                 <tr key={rule} className="border-t border-edge">
                   <Td className="font-medium text-white">
-                    {rule === "esports-barato"
-                      ? "🎮 Esports ≤44¢ (fuera de la noche)"
-                      : rule === "banda-ventana"
-                        ? "💲 Banda 60-89¢ (Mañana/Tarde)"
-                        : `⚠️ ${rule} (regla vieja, ya no entra)`}
+                    {rule === "mañana"
+                      ? "☀️ Mañana 08-11 (cualquier categoría)"
+                      : rule === "esports-barato"
+                        ? "🎮 Esports ≤29¢ (fuera de la noche)"
+                        : rule === "esports-madrugada"
+                          ? "🌙 Esports en Madrugada 00-03"
+                          : `⚠️ ${rule} (regla retirada, ya no entra)`}
                   </Td>
                   <Td className="text-right tabular-nums">{r.count}</Td>
                   <Td className="text-right tabular-nums">{r.settledCount}</Td>
@@ -121,7 +125,7 @@ export default function ElitePage() {
         <PaginatedTradesTable
           rows={rows}
           columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status", "reason"]}
-          emptyHint="Aún no hay copias del híbrido. Abre cuando un brazo copia un trade que cae en una celda de oro (esports ≤44¢ fuera de la noche, o banda 60-89¢ en Mañana/Tarde)."
+          emptyHint="Aún no hay copias del híbrido. Abre cuando un brazo copia un trade que cae en una celda de oro: Mañana 08-11, esports ≤29¢ fuera de la noche, o esports en Madrugada 00-03."
         />
       </Card>
 
@@ -137,28 +141,43 @@ export default function ElitePage() {
             <tbody>
               <tr className="border-t border-edge">
                 <Td>
-                  <b>💲 Banda 60-89¢</b> en Mañana (08-11) o Tarde (16-19)
+                  <b>☀️ Mañana 08-11</b> — cualquier categoría
                 </Td>
                 <Td className="text-mist">
-                  <b className="text-white">LA ESTRELLA — confirmada con dinero real.</b> En el histórico real de Johan
-                  (20-jul) esta celda fue <b className="text-white">10 de 11 (91%), ROI +35,5%</b>. Papel: pre 60-74¢
-                  +9%/68% aciertos · deportes 75-89¢ +6,9%/80%.
+                  <b className="text-white">La señal más repetida de todo el sistema.</b> Verde en cada brazo a la vez:
+                  Pre-partido +21,6% (n=192) · En Vivo +6,0% (n=458) · La Crema +15,1% (n=84) · esports +14,8% (n=270).
+                  Y en cuatro días distintos de la semana (lun +21,9% · mié +31,6% · vie +16,0% · dom +20,7%). Ninguna
+                  otra celda se repite en tantos cortes independientes.
                 </Td>
               </tr>
               <tr className="border-t border-edge">
                 <Td>
-                  <b>🎮 Esports ≤44¢</b>, cualquier hora menos la noche (20-23)
+                  <b>🎮 Esports ≤29¢</b>, cualquier hora menos la noche (20-23)
                 </Td>
                 <Td className="text-mist">
-                  Papel: ≤29¢ +26-28% · 30-44¢ +23-31% (repetido en varias ventanas). <b>Aún sin confirmar en real</b>:
-                  Johan nunca apostó ≤29¢ y sus 2 apuestas de 30-44¢ perdieron. Es la celda a vigilar.
+                  +21,7% (n=89) en todas las ventanas, y +24,6% en los últimos 7 días. El corte quedó en 29¢ porque la
+                  banda 30-44¢ <b>no</b> sobrevivió el barrido (se da vuelta en una ventana).
                 </Td>
               </tr>
               <tr className="border-t border-edge">
-                <Td className="text-mist">🚫 Excluido: banda 45-59¢, Clima, Cripto, noche</Td>
+                <Td>
+                  <b>🌙 Esports en Madrugada 00-03</b> — cualquier banda
+                </Td>
+                <Td className="text-mist">+20,3% (n=87), positiva en las cuatro ventanas.</Td>
+              </tr>
+              <tr className="border-t border-edge">
+                <Td className="text-mist">🚫 Podado el 20-jul: Tarde 16-19 · banda 60-89¢ suelta</Td>
                 <Td className="text-mist">
-                  La banda 45-59¢ «moneda al aire» pierde en papel <b>y</b> en dinero real (esports 3/7 −19,6% ·
-                  deportes 3/6 −13,2%): es la trampa que el corte en 44¢ deja fuera.
+                  La <b>tarde</b> no es ganadora consistente por brazo (Cuota −12,5% · En Vivo +1,9%); su única celda
+                  fuerte era «tarde × jueves», un solo día de la semana = ruido. La <b>banda 60-89¢</b> suelta rinde
+                  +8,1% (n=293) pero se apaga a +1,6% en 7 días, y su parte buena ya vive dentro de la mañana.
+                </Td>
+              </tr>
+              <tr className="border-t border-edge">
+                <Td className="text-mist">🚫 Excluidos siempre: Clima, Cripto, banda 45-59¢</Td>
+                <Td className="text-mist">
+                  Clima y cripto sangran en todo brazo y toda ventana. La banda 45-59¢ «moneda al aire» pierde en papel
+                  y en dinero real (esports 3/7 −19,6% · deportes 3/6 −13,2%).
                 </Td>
               </tr>
             </tbody>
