@@ -62,9 +62,19 @@ export function isCremaGoldCell(category: CategoryKey, hourInAppTz: number, entr
     return { gold: false, reason: `categoría ${category} excluida (roja en toda la matriz)` };
   }
 
-  // Rule 1 — esports, all day but night.
-  if (category === "esports" && !inWindow(hourInAppTz, NIGHT)) {
-    return { gold: true, reason: `esports fuera de la noche (h${hourInAppTz}) — verde transversal` };
+  // Rule 1 — esports CHEAP (<60¢), all day but night.
+  //
+  // Tightened 2026-07-20 after the original "esports any band" rule survived
+  // only half its forward-test: esports LOW bands stayed gold in every window
+  // (all-time ≤29¢ +27.9%, 7d +26.0%; 30–44¢ +22.9% / +30.5%) but esports HIGH
+  // bands are red in every window (60–74¢ −1.3% / −3.6%; 75–89¢ −14.2% /
+  // −10.0%), and the first Crema measurement showed the same split (<60¢
+  // +$15.28 vs 60–89¢ −$10.92). The payoff structure explains it: cheap
+  // esports wins pay ~2x the loss, expensive ones win small and lose whole.
+  // High-band esports can still enter via rule 2 when it lands in the
+  // morning/tarde windows — that cell carries its own multi-cut evidence.
+  if (category === "esports" && entryPrice < BAND_LO && !inWindow(hourInAppTz, NIGHT)) {
+    return { gold: true, reason: `esports <60¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)` };
   }
 
   // Rule 2 — high band in the two green windows.

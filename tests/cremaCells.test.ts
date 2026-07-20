@@ -4,10 +4,10 @@ import { isCremaGoldCell } from "@/lib/cremaCells";
 // Hour buckets (APP_TZ): madrugada 0-3, amanecer 4-7, mañana 8-11,
 // mediodía 12-15, tarde 16-19, noche 20-23.
 
-describe("isCremaGoldCell — esports rule", () => {
-  it("esports is gold all day EXCEPT night", () => {
+describe("isCremaGoldCell — esports rule (cheap only since 2026-07-20)", () => {
+  it("CHEAP esports (<60¢) is gold all day EXCEPT night", () => {
     for (const h of [2, 6, 9, 13, 18]) {
-      expect(isCremaGoldCell("esports", h, 0.4).gold).toBe(true); // even at a low band
+      expect(isCremaGoldCell("esports", h, 0.4).gold).toBe(true);
     }
   });
 
@@ -18,6 +18,20 @@ describe("isCremaGoldCell — esports rule", () => {
 
   it("keeps esports at MIDDAY — midday is bad for sports, not for esports", () => {
     expect(isCremaGoldCell("esports", 13, 0.3).gold).toBe(true);
+  });
+
+  /**
+   * The half of the original rule that FAILED its forward-test: expensive
+   * esports is red in every window (60-74¢ -3.6%, 75-89¢ -10% at 7d). It no
+   * longer qualifies via the esports rule — only via the band+window rule.
+   */
+  it("EXPENSIVE esports outside the green windows is NOT gold anymore", () => {
+    expect(isCremaGoldCell("esports", 13, 0.7).gold).toBe(false); // midday, 70¢
+    expect(isCremaGoldCell("esports", 6, 0.85).gold).toBe(false); // amanecer, 85¢
+  });
+
+  it("expensive esports IN a green window still enters via the band rule", () => {
+    expect(isCremaGoldCell("esports", 9, 0.7).gold).toBe(true); // morning + 60-89¢
   });
 });
 
@@ -74,7 +88,7 @@ describe("isCremaGoldCell — everything else is left to the arms", () => {
   });
 
   it("every verdict carries a human-readable reason", () => {
-    expect(isCremaGoldCell("esports", 9, 0.7).reason).toMatch(/esports/);
+    expect(isCremaGoldCell("esports", 9, 0.4).reason).toMatch(/esports/);
     expect(isCremaGoldCell("deportes", 9, 0.7).reason).toMatch(/oro|Mañana/);
     expect(isCremaGoldCell("clima", 9, 0.7).reason).toMatch(/excluida/);
   });

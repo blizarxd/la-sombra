@@ -35,7 +35,7 @@ export default function ElitePage() {
           Sexto libro, <b>reconstruido el 18-jul</b>. No tiene reglas de entrada propias: cuando Pre-partido, En Vivo,
           Cuota o Cripto YA deciden copiar una jugada, La Crema la espeja <b>solo si cae en una celda de oro de la
           matriz</b> — no importa la billetera. Celdas de oro (estrictas, sobrevivieron varios cortes):{" "}
-          <b>esports fuera de la noche</b>, o <b>banda 60-89¢ en la Mañana (08-11) o la Tarde (16-19)</b>. Antes seguía
+          <b>esports barato (&lt;60¢) fuera de la noche</b>, o <b>banda 60-89¢ en la Mañana (08-11) o la Tarde (16-19)</b>. Antes seguía
           a las top-10 billeteras de cada brazo y fracasó (una billetera puede ser top-10 y aun así apostar en mala
           franja). Ahora es un experimento limpio: si La Crema se pone verde mientras los brazos sangran, la matriz
           manda de verdad. $5 fijo, libro aparte.
@@ -62,7 +62,7 @@ export default function ElitePage() {
         <PaginatedTradesTable
           rows={rows}
           columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status"]}
-          emptyHint="Aún no hay copias con el diseño nuevo. La crema abre cuando uno de los brazos copia un trade que cae en una celda de oro de la matriz (esports fuera de la noche, o banda 60-89¢ en Mañana/Tarde). Se llena a medida que llegan señales frescas en esas celdas."
+          emptyHint="Aún no hay copias con el diseño nuevo. La crema abre cuando uno de los brazos copia un trade que cae en una celda de oro de la matriz (esports <60¢ fuera de la noche, o banda 60-89¢ en Mañana/Tarde). Se llena a medida que llegan señales frescas en esas celdas."
         />
       </Card>
 
@@ -77,8 +77,8 @@ export default function ElitePage() {
             </thead>
             <tbody>
               <tr className="border-t border-edge">
-                <Td><b>🎮 Esports</b>, cualquier hora menos la noche (20-23)</Td>
-                <Td className="text-mist">Verde transversal: pre +7,2% · vivo +6,0% · cuota +9,5% · mañana +25,4%. Rojo solo de noche (−21%).</Td>
+                <Td><b>🎮 Esports barato (&lt;60¢)</b>, cualquier hora menos la noche (20-23)</Td>
+                <Td className="text-mist">Bandas bajas verdes en toda ventana (≤29¢ +26-28% · 30-44¢ +23-31%); esports CARO es rojo (60-74¢ −3,6% · 75-89¢ −10% a 7d) y quedó fuera el 20-jul tras fallar su forward-test. Rojo también de noche (−21%).</Td>
               </tr>
               <tr className="border-t border-edge">
                 <Td><b>Banda 60-89¢</b> en Mañana (08-11) o Tarde (16-19)</Td>
