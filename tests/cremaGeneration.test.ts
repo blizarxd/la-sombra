@@ -91,3 +91,37 @@ describe("getEliteBookStats — design generations", () => {
     expect(s.byRule.size).toBe(0);
   });
 });
+
+describe("getRealizedPnlSeries — strategy-own curve", () => {
+  it("starts the curve at the strategy's beginning instead of the retired design's hole", async () => {
+    const { getRealizedPnlSeries } = await import("@/lib/queries");
+    const db = testDb();
+    const OLD = Date.now() - 10 * 24 * 3600 * 1000;
+    const NEW = Date.now() - 3600_000;
+    // Retired design: a big loss opened 10 days ago.
+    db.insert(paperTrades)
+      .values({
+        id: newId(), decisionJournalId: newId(), walletAddress: "0xabc", marketId: newId(),
+        marketQuestion: "old", side: "BUY", entryPrice: 0.5, simulatedPositionSize: 5, shares: 10,
+        realizedPnl: -150, status: "resolved", track: "elite", openedAt: new Date(OLD),
+        resolvedAt: new Date(OLD + 3600_000),
+      })
+      .run();
+    // Hybrid: a small win opened an hour ago.
+    db.insert(paperTrades)
+      .values({
+        id: newId(), decisionJournalId: newId(), walletAddress: "0xabc", marketId: newId(),
+        marketQuestion: "new", side: "BUY", entryPrice: 0.65, simulatedPositionSize: 5, shares: 7.7,
+        realizedPnl: 3, status: "resolved", track: "elite", goldRule: "banda-ventana",
+        openedAt: new Date(NEW), resolvedAt: new Date(NEW + 60_000),
+      })
+      .run();
+
+    const all = getRealizedPnlSeries(db, "elite");
+    const own = getRealizedPnlSeries(db, "elite", { openedSinceMs: Date.now() - 2 * 24 * 3600 * 1000 });
+    // Unfiltered the strategy looks $147 underwater; its own curve starts at zero.
+    expect(all[all.length - 1].pnl).toBeCloseTo(-147, 5);
+    expect(own).toHaveLength(1);
+    expect(own[0].pnl).toBeCloseTo(3, 5);
+  });
+});

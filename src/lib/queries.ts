@@ -119,7 +119,17 @@ export function getPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto"
  * resolves or is exit-closed — the honest scorecard, free of the open-position
  * mark-to-market noise that dominates getPnlSeries.
  */
-export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" | "crypto" | "combo" | "elite" = "core"): { t: number; pnl: number }[] {
+export function getRealizedPnlSeries(
+  db: Db,
+  track: "core" | "live" | "trade" | "crypto" | "combo" | "elite" = "core",
+  opts?: { openedSinceMs?: number },
+): { t: number; pnl: number }[] {
+  // openedSinceMs: start the curve at a strategy's own beginning. La Crema's
+  // ledger holds a retired design AND the current hybrid; plotting them as one
+  // line makes the live strategy look like it is $150 underwater when it is
+  // actually a two-day-old experiment starting from zero.
+  const conds = [eq(paperTrades.track, track), ne(paperTrades.status, "open")];
+  if (opts?.openedSinceMs != null) conds.push(gte(paperTrades.openedAt, new Date(opts.openedSinceMs)));
   const settled = db
     .select({
       realizedPnl: paperTrades.realizedPnl,
@@ -127,7 +137,7 @@ export function getRealizedPnlSeries(db: Db, track: "core" | "live" | "trade" | 
       closedAt: paperTrades.closedAt,
     })
     .from(paperTrades)
-    .where(and(eq(paperTrades.track, track), ne(paperTrades.status, "open")))
+    .where(and(...conds))
     .all();
   const events = settled
     .map((t) => ({ t: (t.resolvedAt ?? t.closedAt)?.getTime() ?? null, pnl: t.realizedPnl ?? 0 }))
