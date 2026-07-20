@@ -38,7 +38,7 @@ type State = {
 
 // One-shot force token: bump this string in a deploy to force the DAILY cycle
 // to run ONCE on the next tick, regardless of the 08:00 gate below.
-const DAILY_CYCLE_TOKEN = "2026-07-16-two-lane-scheduler";
+const DAILY_CYCLE_TOKEN = "2026-07-20-crema-rule-backfill";
 
 // Johan's requested cut time: once a day, at 8am on HIS clock (APP_TZ).
 const DAILY_CYCLE_HOUR = 8;
@@ -61,6 +61,7 @@ const DAILY_STEPS: Array<{ file: string; args?: string[] }> = [
   // (update-elite-roster.ts retired 2026-07-18: La Crema is now matrix-gold-cell
   //  driven, not top-10-wallet driven — the roster no longer gates any entry.)
   { file: "manual-tune-2026-07-15.ts" }, // one-off, idempotent, self-skips once applied
+  { file: "backfill-crema-rules.ts" }, // one-off, idempotent: label post-rebuild Crema copies
   { file: "update-rules.ts" }, // self-improve CORE on core evidence
   { file: "update-rules-live.ts" }, // self-improve LIVE on live evidence
   { file: "update-rules-trade.ts" }, // self-improve TRADE book
