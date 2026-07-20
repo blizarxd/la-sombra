@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getDb } from "@/db/client";
 import { getFlatStakeSimulation, getSliceMatrices } from "@/lib/queries";
 import { APP_TZ } from "@/lib/format";
@@ -6,6 +7,16 @@ import { TRACK_LABELS } from "@/lib/slices";
 import { Card, Empty, PnlText, Table, Td, Th } from "../components/ui";
 
 export const dynamic = "force-dynamic";
+
+/** Period filter for the matrices — keyed by the ?p= query param. */
+const PERIODS = [
+  { key: "1d", label: "Último día", ms: 24 * 3600 * 1000 },
+  { key: "7d", label: "Semana", ms: 7 * 24 * 3600 * 1000 },
+  { key: "15d", label: "15 días", ms: 15 * 24 * 3600 * 1000 },
+  { key: "30d", label: "Mes", ms: 30 * 24 * 3600 * 1000 },
+  { key: "all", label: "Todo", ms: null as number | null },
+] as const;
+type PeriodKey = (typeof PERIODS)[number]["key"];
 
 function Cell({ cell, best, worst, minSample }: { cell: MatrixCell | null; best: boolean; worst: boolean; minSample: number }) {
   if (!cell) return <span className="text-mist">—</span>;
@@ -83,7 +94,7 @@ function FlatStakeCard({ rows }: { rows: ReturnType<typeof getFlatStakeSimulatio
   const withData = rows.filter((r) => r.count > 0);
   if (!withData.length) return null;
   return (
-    <Card title="🎯 Apuesta fija vs. apuesta por confianza — ¿cuál da más capital?">
+    <Card title="🎯 Apuesta fija vs. apuesta por confianza — ¿cuál da más capital? (todo el historial)">
       <p className="mb-3 text-sm text-mist">
         Pre-partido es el único libro que varía el tamaño ($5–$20 según qué tan segura está la señal); los demás ya
         apuestan $5 fijo siempre. Esta tabla simula: <span className="text-white">si TODOS los libros hubieran apostado
@@ -135,9 +146,16 @@ function FlatStakeCard({ rows }: { rows: ReturnType<typeof getFlatStakeSimulatio
   );
 }
 
-export default function MatrizPage() {
+export default async function MatrizPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ p?: string }>;
+}) {
   const db = getDb();
-  const matrices = getSliceMatrices(db);
+  const { p } = await searchParams;
+  const period = PERIODS.find((x) => x.key === (p as PeriodKey)) ?? PERIODS[PERIODS.length - 1];
+  const sinceMs = period.ms != null ? Date.now() - period.ms : undefined;
+  const matrices = getSliceMatrices(db, { sinceMs });
   const flatSim = getFlatStakeSimulation(db);
   const total = matrices[0]?.sampleSize ?? 0;
 
@@ -146,9 +164,34 @@ export default function MatrizPage() {
       <header>
         <h1 className="text-xl font-semibold text-white">🔬 Matriz — ¿cuándo y a qué precio nos va mejor?</h1>
         <p className="mt-1 text-sm text-mist">
-          Los mismos {total} trades liquidados, cortados por hora, por banda de entrada y por día. Todas las horas son tu
-          hora ({APP_TZ}, UTC-4) y usan el momento en que se ABRIÓ la copia.
+          {period.ms != null ? (
+            <>Solo los <span className="text-white">{total}</span> trades liquidados ABIERTOS en: {period.label.toLowerCase()}. </>
+          ) : (
+            <>Los mismos {total} trades liquidados, cortados por hora, por banda de entrada y por día. </>
+          )}
+          Todas las horas son tu hora ({APP_TZ}, UTC-4) y usan el momento en que se ABRIÓ la copia.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-mist">Periodo:</span>
+          {PERIODS.map((x) => (
+            <Link
+              key={x.key}
+              href={x.key === "all" ? "/matriz" : `/matriz?p=${x.key}`}
+              className={`rounded-full border px-2.5 py-1 transition ${
+                x.key === period.key
+                  ? "border-accent bg-panel2 text-white"
+                  : "border-edge text-mist hover:text-white"
+              }`}
+            >
+              {x.label}
+            </Link>
+          ))}
+          {period.ms != null ? (
+            <span className="text-mist">
+              — ojo: periodos cortos = muestras chicas; el ⚠ de celda fina importa el doble aquí.
+            </span>
+          ) : null}
+        </div>
       </header>
 
       <Card title="Cómo leer esto sin engañarse">

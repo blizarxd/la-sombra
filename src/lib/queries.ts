@@ -953,7 +953,15 @@ export function getCategoryPerformance(db: Db) {
  * dashboard always shows the DB as it stands right now. Cheap enough: it is one
  * scan over settled paper trades (a few thousand rows).
  */
-export function getSliceMatrices(db: Db) {
+export function getSliceMatrices(db: Db, opts?: { sinceMs?: number }) {
+  // Period filter (added 2026-07-20, Johan): the all-time aggregate hides how a
+  // cell did YESTERDAY vs its whole history — a vein that dried up three days
+  // ago still looks green in the total. Filtering by openedAt keeps the axis
+  // consistent with the matrices themselves (they bucket by open time).
+  const where =
+    opts?.sinceMs != null
+      ? and(ne(paperTrades.status, "open"), gte(paperTrades.openedAt, new Date(opts.sinceMs)))
+      : ne(paperTrades.status, "open");
   const rows = db
     .select({
       track: paperTrades.track,
@@ -964,7 +972,7 @@ export function getSliceMatrices(db: Db) {
       marketQuestion: paperTrades.marketQuestion,
     })
     .from(paperTrades)
-    .where(ne(paperTrades.status, "open"))
+    .where(where)
     .all();
 
   return buildAllMatrices(rows as SettledTrade[]);
