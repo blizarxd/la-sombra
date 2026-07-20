@@ -35,7 +35,7 @@ export default function ElitePage() {
           Sexto libro, <b>reconstruido el 18-jul</b>. No tiene reglas de entrada propias: cuando Pre-partido, En Vivo,
           Cuota o Cripto YA deciden copiar una jugada, La Crema la espeja <b>solo si cae en una celda de oro de la
           matriz</b> — no importa la billetera. Celdas de oro (estrictas, sobrevivieron varios cortes):{" "}
-          <b>esports barato (&lt;60¢) fuera de la noche</b>, o <b>banda 60-89¢ en la Mañana (08-11) o la Tarde (16-19)</b>. Antes seguía
+          <b>esports barato (≤44¢) fuera de la noche</b>, o <b>banda 60-89¢ en la Mañana (08-11) o la Tarde (16-19)</b>. Antes seguía
           a las top-10 billeteras de cada brazo y fracasó (una billetera puede ser top-10 y aun así apostar en mala
           franja). Ahora es un experimento limpio: si La Crema se pone verde mientras los brazos sangran, la matriz
           manda de verdad. $5 fijo, libro aparte.
@@ -60,7 +60,7 @@ export default function ElitePage() {
           tone={pnlTone}
           hint="no juzgues el diseño nuevo por este número"
         />
-        <Stat label="Filtro" value="Celdas de oro" hint="esports <60¢ · banda 60-89¢ mañana/tarde" />
+        <Stat label="Filtro" value="Celdas de oro" hint="esports ≤44¢ · banda 60-89¢ mañana/tarde" />
       </div>
 
       {elite.byRule.size > 0 ? (
@@ -80,7 +80,7 @@ export default function ElitePage() {
               {[...elite.byRule.entries()].map(([rule, s]) => (
                 <tr key={rule} className="border-t border-edge">
                   <Td className="font-medium text-white">
-                    {rule === "esports-barato" ? "🎮 Esports <60¢ (fuera de la noche)" : "💲 Banda 60-89¢ (Mañana/Tarde)"}
+                    {rule === "esports-barato" ? "🎮 Esports ≤44¢ (fuera de la noche)" : "💲 Banda 60-89¢ (Mañana/Tarde)"}
                   </Td>
                   <Td className="text-right tabular-nums">{s.count}</Td>
                   <Td className="text-right tabular-nums">{s.settledCount}</Td>
@@ -110,7 +110,7 @@ export default function ElitePage() {
         <PaginatedTradesTable
           rows={rows}
           columns={["opened", "market", "wallet", "size", "entry", "current", "pnl", "status"]}
-          emptyHint="Aún no hay copias con el diseño nuevo. La crema abre cuando uno de los brazos copia un trade que cae en una celda de oro de la matriz (esports <60¢ fuera de la noche, o banda 60-89¢ en Mañana/Tarde). Se llena a medida que llegan señales frescas en esas celdas."
+          emptyHint="Aún no hay copias con el diseño nuevo. La crema abre cuando uno de los brazos copia un trade que cae en una celda de oro de la matriz (esports ≤44¢ fuera de la noche, o banda 60-89¢ en Mañana/Tarde). Se llena a medida que llegan señales frescas en esas celdas."
         />
       </Card>
 
@@ -125,12 +125,12 @@ export default function ElitePage() {
             </thead>
             <tbody>
               <tr className="border-t border-edge">
-                <Td><b>🎮 Esports barato (&lt;60¢)</b>, cualquier hora menos la noche (20-23)</Td>
-                <Td className="text-mist">Bandas bajas verdes en toda ventana (≤29¢ +26-28% · 30-44¢ +23-31%); esports CARO es rojo (60-74¢ −3,6% · 75-89¢ −10% a 7d) y quedó fuera el 20-jul tras fallar su forward-test. Rojo también de noche (−21%).</Td>
+                <Td><b>🎮 Esports barato (≤44¢)</b>, cualquier hora menos la noche (20-23)</Td>
+                <Td className="text-mist">Papel: ≤29¢ +26-28% · 30-44¢ +23-31%. El corte se fijó en 44¢ (no 60¢) el 20-jul: la banda 45-59¢ «moneda al aire» pierde en papel Y en dinero real (esports 3/7 −19,6% · deportes 3/6 −13,2%). Rojo también de noche (−21%).</Td>
               </tr>
               <tr className="border-t border-edge">
                 <Td><b>Banda 60-89¢</b> en Mañana (08-11) o Tarde (16-19)</Td>
-                <Td className="text-mist">Bandas altas verdes (pre 60-74¢ +10,9%/70% · deportes 75-89¢ +10,6%/83%) en las dos franjas verdes.</Td>
+                <Td className="text-mist">LA ESTRELLA. Papel: pre 60-74¢ +9%/68%. Dinero real de Johan (20-jul): esta celda fue 10 de 11 (91%), ROI +35,5% — la única confirmada con plata de verdad.</Td>
               </tr>
               <tr className="border-t border-edge">
                 <Td className="text-mist">Excluidas siempre: Clima, Cripto</Td>

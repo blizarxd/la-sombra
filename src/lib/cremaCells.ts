@@ -38,8 +38,18 @@ import type { CategoryKey } from "./category";
  * is left to the arms; La Crema does not touch it.
  */
 
-const BAND_LO = 0.6; // inclusive
-const BAND_HI = 0.9; // exclusive
+const BAND_LO = 0.6; // inclusive — rule 2 floor
+const BAND_HI = 0.9; // exclusive — rule 2 ceiling
+/**
+ * Rule 1 ceiling. NOT 0.60 — the 45–59¢ "coin flip" band is a TRAP, and it is
+ * the one thing paper and Johan's real money agree on completely:
+ *   · real money 2026-07-20: esports 45–59¢ 3/7 (−19.6%), deportes 45–59¢ 3/6 (−13.2%)
+ *   · paper matrix: core 45–59¢ −7.6%, esports 45–59¢ only +6% (weakest cheap band)
+ * The paper's actual esports gold is ≤44¢ (≤29¢ +27.9%, 30–44¢ +22.9%). Setting
+ * this at 0.60 on 2026-07-19 swept the trap band in with the gold — corrected
+ * 2026-07-20 once the real-money split made the boundary obvious.
+ */
+const ESPORTS_MAX = 0.45; // exclusive
 const MORNING = [8, 11] as const; // 08–11
 const TARDE = [16, 19] as const; // 16–19
 const NIGHT = [20, 23] as const; // 20–23
@@ -69,7 +79,7 @@ export function isCremaGoldCell(category: CategoryKey, hourInAppTz: number, entr
     return { gold: false, reason: `categoría ${category} excluida (roja en toda la matriz)` };
   }
 
-  // Rule 1 — esports CHEAP (<60¢), all day but night.
+  // Rule 1 — esports CHEAP (≤44¢), all day but night.
   //
   // Tightened 2026-07-20 after the original "esports any band" rule survived
   // only half its forward-test: esports LOW bands stayed gold in every window
@@ -80,11 +90,11 @@ export function isCremaGoldCell(category: CategoryKey, hourInAppTz: number, entr
   // esports wins pay ~2x the loss, expensive ones win small and lose whole.
   // High-band esports can still enter via rule 2 when it lands in the
   // morning/tarde windows — that cell carries its own multi-cut evidence.
-  if (category === "esports" && entryPrice < BAND_LO && !inWindow(hourInAppTz, NIGHT)) {
+  if (category === "esports" && entryPrice < ESPORTS_MAX && !inWindow(hourInAppTz, NIGHT)) {
     return {
       gold: true,
       rule: "esports-barato",
-      reason: `esports <60¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)`,
+      reason: `esports ≤44¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)`,
     };
   }
 

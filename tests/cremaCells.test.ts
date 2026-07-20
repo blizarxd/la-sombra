@@ -4,11 +4,30 @@ import { isCremaGoldCell } from "@/lib/cremaCells";
 // Hour buckets (APP_TZ): madrugada 0-3, amanecer 4-7, mañana 8-11,
 // mediodía 12-15, tarde 16-19, noche 20-23.
 
-describe("isCremaGoldCell — esports rule (cheap only since 2026-07-20)", () => {
-  it("CHEAP esports (<60¢) is gold all day EXCEPT night", () => {
+describe("isCremaGoldCell — esports rule (cheap ≤44¢ since 2026-07-20)", () => {
+  it("CHEAP esports (≤44¢) is gold all day EXCEPT night", () => {
     for (const h of [2, 6, 9, 13, 18]) {
       expect(isCremaGoldCell("esports", h, 0.4).gold).toBe(true);
     }
+  });
+
+  /**
+   * The 45-59¢ "coin flip" band is the trap both data sources agree on:
+   * real money esports 3/7 (-19.6%) and deportes 3/6 (-13.2%); paper core
+   * -7.6%. The first version of this rule (<60¢) swept it in with the gold.
+   */
+  it("the 45-59¢ COIN-FLIP band is NOT gold — the trap that cost real money", () => {
+    for (const h of [2, 9, 13, 18]) {
+      expect(isCremaGoldCell("esports", h, 0.45).gold).toBe(false);
+      expect(isCremaGoldCell("esports", h, 0.55).gold).toBe(false);
+      expect(isCremaGoldCell("deportes", h, 0.5).gold).toBe(false);
+    }
+  });
+
+  it("the cheap boundary is 44¢/45¢, not 59¢/60¢", () => {
+    expect(isCremaGoldCell("esports", 9, 0.44).gold).toBe(true);
+    expect(isCremaGoldCell("esports", 13, 0.449).gold).toBe(true);
+    expect(isCremaGoldCell("esports", 13, 0.45).gold).toBe(false);
   });
 
   it("esports at night (20-23) is NOT gold — the one slot it turns red", () => {
@@ -25,7 +44,7 @@ describe("isCremaGoldCell — esports rule (cheap only since 2026-07-20)", () =>
    * esports is red in every window (60-74¢ -3.6%, 75-89¢ -10% at 7d). It no
    * longer qualifies via the esports rule — only via the band+window rule.
    */
-  it("EXPENSIVE esports outside the green windows is NOT gold anymore", () => {
+  it("EXPENSIVE esports outside the green windows is NOT gold", () => {
     expect(isCremaGoldCell("esports", 13, 0.7).gold).toBe(false); // midday, 70¢
     expect(isCremaGoldCell("esports", 6, 0.85).gold).toBe(false); // amanecer, 85¢
   });
