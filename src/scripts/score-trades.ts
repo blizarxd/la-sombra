@@ -71,6 +71,11 @@ async function maybeOpenEliteMirror(
     track: "elite",
     now: params.now,
   });
+  if (opened.opened && opened.paperTradeId && verdict.rule) {
+    // Stamp WHICH gold rule let this copy in, so each cell is judged apart and
+    // the new design stays separable from the pre-rebuild legacy (gold_rule null).
+    db.update(paperTrades).set({ goldRule: verdict.rule }).where(eq(paperTrades.id, opened.paperTradeId)).run();
+  }
   if (opened.opened) {
     log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} gold-cell copy from ${params.arm} — ${verdict.reason}`);
     if (telegramConfigured()) {

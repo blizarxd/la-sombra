@@ -620,6 +620,34 @@ export function getEliteBookStats(db: Db) {
   for (const r of roster) rosterByArm.set(r.arm, [...(rosterByArm.get(r.arm) ?? []), r]);
   const lastRefreshedAt = roster.length ? roster.reduce((a, r) => (r.computedAt > a ? r.computedAt : a), roster[0].computedAt) : null;
 
+  // Two different experiments live in this one ledger. Judging the matrix-driven
+  // design by the combined number is judging it by the failed top-10-wallet
+  // design's hole — which is what every AI cut has been doing ("Elite failed").
+  // goldRule is the separator: only the new design stamps it.
+  const summarize = (rs: typeof trades) => {
+    const s = rs.filter((t) => t.status !== "open");
+    const o = rs.filter((t) => t.status === "open");
+    const r = s.reduce((a, t) => a + (t.realizedPnl ?? 0), 0);
+    const u = o.reduce((a, t) => a + (t.unrealizedPnl ?? 0), 0);
+    const w = s.filter((t) => (t.realizedPnl ?? 0) > 0).length;
+    return {
+      count: rs.length,
+      settledCount: s.length,
+      openCount: o.length,
+      realizedPnl: Math.round(r * 100) / 100,
+      unrealizedPnl: Math.round(u * 100) / 100,
+      totalPnl: Math.round((r + u) * 100) / 100,
+      winRate: s.length ? w / s.length : null,
+    };
+  };
+
+  const legacy = summarize(trades.filter((t) => !t.goldRule));
+  const matrixDriven = summarize(trades.filter((t) => t.goldRule));
+  const byRule = new Map<string, ReturnType<typeof summarize>>();
+  for (const rule of new Set(trades.map((t) => t.goldRule).filter(Boolean) as string[])) {
+    byRule.set(rule, summarize(trades.filter((t) => t.goldRule === rule)));
+  }
+
   return {
     trades,
     openCount: open.length,
@@ -628,6 +656,9 @@ export function getEliteBookStats(db: Db) {
     realizedPnl: Math.round(realized * 100) / 100,
     unrealizedPnl: Math.round(unrealized * 100) / 100,
     winRate: settled.length ? wins / settled.length : null,
+    legacy,
+    matrixDriven,
+    byRule,
     roster,
     rosterByArm,
     rosterSize: roster.length,

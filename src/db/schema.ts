@@ -215,6 +215,15 @@ export const paperTrades = sqliteTable(
     track: text("track", { enum: ["core", "live", "trade", "crypto", "combo", "elite"] })
       .notNull()
       .default("core"),
+    /**
+     * 🏆 La Crema only: WHICH gold-cell rule let this copy in ("esports-barato"
+     * or "banda-ventana"). Null for every other book AND for La Crema's copies
+     * from before the 2026-07-18 rebuild, which is exactly what makes the old
+     * failed top-10-wallet design separable from the new matrix-driven one.
+     * Without it the ledger mixes two different experiments and the -$146
+     * legacy hole buries whatever the new design is actually doing.
+     */
+    goldRule: text("gold_rule"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),

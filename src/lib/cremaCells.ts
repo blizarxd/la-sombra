@@ -48,10 +48,17 @@ const EXCLUDED_CATEGORIES: ReadonlySet<CategoryKey> = new Set<CategoryKey>(["cli
 
 const inWindow = (hour: number, [lo, hi]: readonly [number, number]) => hour >= lo && hour <= hi;
 
+/** Which gold rule fired — stored on the trade so each cell can be judged apart. */
+export type CremaRule = "esports-barato" | "banda-ventana";
+
 export interface CremaVerdict {
   gold: boolean;
   reason: string;
+  rule?: CremaRule;
 }
+
+/** When La Crema stopped being top-10-wallet driven and became matrix driven. */
+export const CREMA_REBUILD_MS = Date.parse("2026-07-18T19:00:00Z"); // 15:00 Caracas
 
 /**
  * Is this trade in a La Crema gold cell? Pure — the arms supply category
@@ -74,7 +81,11 @@ export function isCremaGoldCell(category: CategoryKey, hourInAppTz: number, entr
   // High-band esports can still enter via rule 2 when it lands in the
   // morning/tarde windows — that cell carries its own multi-cut evidence.
   if (category === "esports" && entryPrice < BAND_LO && !inWindow(hourInAppTz, NIGHT)) {
-    return { gold: true, reason: `esports <60¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)` };
+    return {
+      gold: true,
+      rule: "esports-barato",
+      reason: `esports <60¢ fuera de la noche (h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)`,
+    };
   }
 
   // Rule 2 — high band in the two green windows.
@@ -82,7 +93,7 @@ export function isCremaGoldCell(category: CategoryKey, hourInAppTz: number, entr
   const greenWindow = inWindow(hourInAppTz, MORNING) || inWindow(hourInAppTz, TARDE);
   if (highBand && greenWindow) {
     const win = inWindow(hourInAppTz, MORNING) ? "Mañana 08-11" : "Tarde 16-19";
-    return { gold: true, reason: `banda ${Math.round(entryPrice * 100)}¢ en ${win} — celda de oro` };
+    return { gold: true, rule: "banda-ventana", reason: `banda ${Math.round(entryPrice * 100)}¢ en ${win} — celda de oro` };
   }
 
   return { gold: false, reason: `no es celda de oro (${category}, h${hourInAppTz}, ${Math.round(entryPrice * 100)}¢)` };

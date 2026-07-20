@@ -1,7 +1,7 @@
 import { getDb } from "@/db/client";
 import { getEliteBookStats, getRealizedPnlSeries } from "@/lib/queries";
 import { money, pct, when } from "@/lib/format";
-import { Card, Stat, Td, Th } from "../components/ui";
+import { Card, PnlText, Stat, Table, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
 import { PaginatedTradesTable, type TradeRowData } from "../components/PaginatedTradesTable";
 
@@ -44,15 +44,63 @@ export default function ElitePage() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat
-          label="PnL de la crema"
+          label="🆕 Diseño NUEVO (celdas de oro)"
+          value={money(elite.matrixDriven.totalPnl, { sign: true })}
+          tone={elite.matrixDriven.totalPnl > 0 ? "profit" : elite.matrixDriven.totalPnl < 0 ? "loss" : "neutral"}
+          hint={`${pct(elite.matrixDriven.winRate)} acierto · ${elite.matrixDriven.settledCount} liq · ${elite.matrixDriven.openCount} abiertas`}
+        />
+        <Stat
+          label="Legado (top-10, retirado)"
+          value={money(elite.legacy.totalPnl, { sign: true })}
+          hint={`${pct(elite.legacy.winRate)} acierto · ${elite.legacy.settledCount} liq — diseño fracasado`}
+        />
+        <Stat
+          label="PnL del libro (los dos juntos)"
           value={money(elite.totalPnl, { sign: true })}
           tone={pnlTone}
-          hint={`realizado ${money(elite.realizedPnl)} · abierto ${money(elite.unrealizedPnl)}`}
+          hint="no juzgues el diseño nuevo por este número"
         />
-        <Stat label="Tasa de acierto" value={pct(elite.winRate)} hint={`${elite.settledCount} liquidadas`} />
-        <Stat label="Posiciones abiertas" value={String(elite.openCount)} />
-        <Stat label="Filtro" value="Celdas de oro" hint="matriz manda · esports + banda 60-89¢ mañana/tarde" />
+        <Stat label="Filtro" value="Celdas de oro" hint="esports <60¢ · banda 60-89¢ mañana/tarde" />
       </div>
+
+      {elite.byRule.size > 0 ? (
+        <Card title="🥇 Cómo va CADA celda de oro (solo diseño nuevo)">
+          <Table>
+            <thead>
+              <tr>
+                <Th>Celda</Th>
+                <Th className="text-right">Copias</Th>
+                <Th className="text-right">Liquidadas</Th>
+                <Th className="text-right">Acierto</Th>
+                <Th className="text-right">Realizado</Th>
+                <Th className="text-right">Total (incl. abiertas)</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {[...elite.byRule.entries()].map(([rule, s]) => (
+                <tr key={rule} className="border-t border-edge">
+                  <Td className="font-medium text-white">
+                    {rule === "esports-barato" ? "🎮 Esports <60¢ (fuera de la noche)" : "💲 Banda 60-89¢ (Mañana/Tarde)"}
+                  </Td>
+                  <Td className="text-right tabular-nums">{s.count}</Td>
+                  <Td className="text-right tabular-nums">{s.settledCount}</Td>
+                  <Td className="text-right tabular-nums text-mist">{pct(s.winRate)}</Td>
+                  <Td className="text-right">
+                    <PnlText value={s.realizedPnl} />
+                  </Td>
+                  <Td className="text-right">
+                    <PnlText value={s.totalPnl} />
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <p className="mt-2 text-[11px] leading-4 text-mist">
+            Cada regla se juzga por separado: si una carga al libro y la otra drena, se recorta la que drena en vez de
+            culpar a La Crema entera. Así se afinó el 20-jul (esports caro salió al fallar su forward-test).
+          </p>
+        </Card>
+      ) : null}
 
       <Card title="PnL realizado de la crema (libro paralelo)">
         <PnlChart marked={realizedSeries} realized={realizedSeries} />
