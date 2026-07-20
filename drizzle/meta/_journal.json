@@ -99,6 +99,13 @@
       "when": 1784559495336,
       "tag": "0013_crema_gold_rule",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1784930000000,
+      "tag": "0014_crema_cells",
+      "breakpoints": true
     }
   ]
 }

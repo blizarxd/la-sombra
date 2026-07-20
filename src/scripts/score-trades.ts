@@ -5,7 +5,7 @@ import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { categorizeMarket } from "@/lib/category";
 import { effectiveMinEntryPrice, isCategoryExcluded } from "@/lib/categoryEntryBand";
-import { isCremaGoldCell } from "@/lib/cremaCells";
+import { cremaVerdict } from "@/lib/cremaCells";
 import { ELITE_POSITION_SIZE } from "@/lib/elite";
 import { hourInAppTz } from "@/lib/format";
 import { newId } from "@/lib/ids";
@@ -40,14 +40,20 @@ async function maybeOpenEliteMirror(
     now: Date;
   },
 ): Promise<void> {
-  // NEW GATE (2026-07-18): mirror when the trade lands in a MATRIX GOLD CELL,
-  // not when the source wallet is a top-10-weekly winner. La Crema still only
-  // mirrors trades an arm ALREADY decided to copy (it invents no entry) — it
-  // just keeps the ones in a proven-gold cell, from ANY arm. See cremaCells.ts.
+  // GATE (2026-07-18, self-evolving since 2026-07-20): mirror when the trade
+  // lands in an ACTIVE matrix gold cell — the set in `crema_cells`, re-derived
+  // every daily cut with pre-registered hysteresis (see goldEngine.ts). La
+  // Crema still only mirrors trades an arm ALREADY decided to copy (it invents
+  // no entry) — it just keeps the ones in proven-gold cells, from ANY arm.
   const entryPrice = params.book.bestAsk;
   if (entryPrice == null) return; // no price = can't place a cell; leave it to the arm
   const category = categorizeMarket(params.marketQuestion);
-  const verdict = isCremaGoldCell(category, hourInAppTz(params.now), entryPrice);
+  const verdict = cremaVerdict(db, {
+    arm: params.arm,
+    category,
+    hourInAppTz: hourInAppTz(params.now),
+    entryPrice,
+  });
   if (!verdict.gold) return;
 
   const dupConds = [
@@ -71,10 +77,10 @@ async function maybeOpenEliteMirror(
     track: "elite",
     now: params.now,
   });
-  if (opened.opened && opened.paperTradeId && verdict.rule) {
-    // Stamp WHICH gold rule let this copy in, so each cell is judged apart and
+  if (opened.opened && opened.paperTradeId && verdict.ruleId) {
+    // Stamp WHICH gold cell let this copy in, so each cell is judged apart and
     // the new design stays separable from the pre-rebuild legacy (gold_rule null).
-    db.update(paperTrades).set({ goldRule: verdict.rule }).where(eq(paperTrades.id, opened.paperTradeId)).run();
+    db.update(paperTrades).set({ goldRule: verdict.ruleId }).where(eq(paperTrades.id, opened.paperTradeId)).run();
   }
   if (opened.opened) {
     log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} gold-cell copy from ${params.arm} — ${verdict.reason}`);

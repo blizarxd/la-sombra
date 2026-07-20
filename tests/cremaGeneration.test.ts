@@ -67,9 +67,20 @@ describe("getEliteBookStats — design generations", () => {
     seed(db, { pnl: 4, goldRule: "esports-barato" });
     seed(db, { pnl: -9, goldRule: "banda-ventana" });
     const s = getEliteBookStats(db);
-    expect(s.byRule.get("esports-barato")?.realizedPnl).toBe(16);
+    // "esports-barato" is a pre-engine stamp; the board groups by its CANONICAL
+    // cell id so old and new copies of the same cell share one row.
+    expect(s.byRule.get("cat-band:esports:p00")?.realizedPnl).toBe(16);
     expect(s.byRule.get("banda-ventana")?.realizedPnl).toBe(-9);
-    expect(s.byRule.get("esports-barato")?.winRate).toBe(1);
+    expect(s.byRule.get("cat-band:esports:p00")?.winRate).toBe(1);
+  });
+
+  it("sellos viejos y nuevos de la MISMA celda caen en la misma fila del tablero", () => {
+    const db = testDb();
+    seed(db, { pnl: 5, goldRule: "mañana" }); // pre-engine stamp
+    seed(db, { pnl: 3, goldRule: "hour:08" }); // engine stamp
+    const s = getEliteBookStats(db);
+    expect(s.byRule.get("hour:08")?.realizedPnl).toBe(8);
+    expect(s.byRule.has("mañana")).toBe(false);
   });
 
   it("counts open positions in the right generation without touching realized", () => {

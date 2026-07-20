@@ -402,6 +402,49 @@ export const controlSettings = sqliteTable("control_settings", {
  * never fetched again; only still-open legs cost a call. That is what lets the
  * book hold many more open combos without settlement falling behind.
  */
+/**
+ * 🧬 La Crema's auto-evolving gold cells (added 2026-07-20).
+ *
+ * Each row is ONE matrix cell (e.g. "hour:08" or "cat-band:esports:p00") that
+ * the daily gold scan is tracking. kind="gold" cells let a trade INTO the
+ * hybrid; kind="trap" cells VETO it (traps win). Lifecycle is hysteresis-based
+ * and pre-registered so nobody improvises with the result in view:
+ * candidata → activa after 2 consecutive scans as a survivor; activa → retirada
+ * after 2 consecutive scans failing. The scan itself only READS settled paper
+ * trades — this table steers which paper copies La Crema mirrors, nothing else.
+ */
+export const cremaCells = sqliteTable(
+  "crema_cells",
+  {
+    id: text("id").primaryKey(), // canonical cell id, e.g. "hour:08"
+    kind: text("kind", { enum: ["gold", "trap"] }).notNull(),
+    label: text("label").notNull(),
+    paramsJson: text("params_json").notNull(), // serialized CellParams (arm/category/hourBlock/priceBand)
+    status: text("status", { enum: ["candidata", "activa", "retirada"] }).notNull(),
+    hits: integer("hits").notNull().default(0), // consecutive scans as survivor
+    misses: integer("misses").notNull().default(0), // consecutive scans failing
+    evidenceJson: text("evidence_json"), // latest per-window stats, for the UI
+    firstSeenAt: integer("first_seen_at", { mode: "timestamp_ms" }).notNull(),
+    activatedAt: integer("activated_at", { mode: "timestamp_ms" }),
+    retiredAt: integer("retired_at", { mode: "timestamp_ms" }),
+    updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [index("crema_cells_status_idx").on(t.status)],
+);
+
+/** Append-only log of every cell transition — the strategy's own diary. */
+export const cremaEvolution = sqliteTable(
+  "crema_evolution",
+  {
+    id: text("id").primaryKey(),
+    at: integer("at", { mode: "timestamp_ms" }).notNull(),
+    cellId: text("cell_id").notNull(),
+    action: text("action").notNull(), // candidata | activada | podada | reactivada | descartada | semilla
+    detail: text("detail").notNull(),
+  },
+  (t) => [index("crema_evolution_at_idx").on(t.at)],
+);
+
 export const comboLegResolutions = sqliteTable("combo_leg_resolutions", {
   /** The leg's exact question text, lowercased — that is how combo titles key it. */
   question: text("question").primaryKey(),

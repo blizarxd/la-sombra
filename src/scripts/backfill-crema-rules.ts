@@ -1,7 +1,8 @@
 import { and, eq, gte, isNull } from "drizzle-orm";
 import { paperTrades } from "@/db/schema";
 import { categorizeMarket } from "@/lib/category";
-import { CREMA_REBUILD_MS, isCremaGoldCell } from "@/lib/cremaCells";
+import { CREMA_REBUILD_MS, seedCells } from "@/lib/cremaCells";
+import { verdictFromCells } from "@/lib/goldEngine";
 import { hourInAppTz } from "@/lib/format";
 import { log } from "@/lib/logger";
 import { runScript } from "./_runner";
@@ -44,14 +45,18 @@ runScript("backfill:crema-rules", async (db) => {
     return;
   }
 
+  // Evaluate against the SEED cells (the frozen 2026-07-20 manual scan), not
+  // the live evolving set — a backfill must stamp what was true at open time.
+  const seeds = seedCells();
   const counts: Record<string, number> = {};
   for (const t of pending) {
-    const verdict = isCremaGoldCell(
-      categorizeMarket(t.marketQuestion),
-      hourInAppTz(t.openedAt),
-      t.entryPrice,
-    );
-    const rule = verdict.gold && verdict.rule ? verdict.rule : "regla-v1";
+    const verdict = verdictFromCells(seeds, {
+      arm: "core", // seeds carry no arm-pinned cells, so the arm can't change the verdict
+      category: categorizeMarket(t.marketQuestion),
+      hourInAppTz: hourInAppTz(t.openedAt),
+      entryPrice: t.entryPrice,
+    });
+    const rule = verdict.gold && verdict.ruleId ? verdict.ruleId : "regla-v1";
     db.update(paperTrades).set({ goldRule: rule }).where(eq(paperTrades.id, t.id)).run();
     counts[rule] = (counts[rule] ?? 0) + 1;
   }

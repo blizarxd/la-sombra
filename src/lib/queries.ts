@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, like, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
   aiAnalyses,
+  cremaEvolution,
   dailyReports,
   decisionJournal,
   eliteRoster,
@@ -15,6 +16,7 @@ import {
   ruleSets,
   walletProfiles,
 } from "@/db/schema";
+import { canonicalGoldRule, loadAllCells } from "./cremaCells";
 import {
   computeBenchmarks,
   computeSkipAutopsy,
@@ -653,9 +655,11 @@ export function getEliteBookStats(db: Db) {
 
   const legacy = summarize(trades.filter((t) => !t.goldRule));
   const matrixDriven = summarize(trades.filter((t) => t.goldRule));
+  // Group by CANONICAL cell id: pre-engine stamps ("mañana") and engine stamps
+  // ("hour:08") are the same cell and must land on the same pruning-board row.
   const byRule = new Map<string, ReturnType<typeof summarize>>();
-  for (const rule of new Set(trades.map((t) => t.goldRule).filter(Boolean) as string[])) {
-    byRule.set(rule, summarize(trades.filter((t) => t.goldRule === rule)));
+  for (const rule of new Set(trades.map((t) => (t.goldRule ? canonicalGoldRule(t.goldRule) : null)).filter(Boolean) as string[])) {
+    byRule.set(rule, summarize(trades.filter((t) => t.goldRule && canonicalGoldRule(t.goldRule) === rule)));
   }
 
   return {
@@ -674,6 +678,27 @@ export function getEliteBookStats(db: Db) {
     rosterSize: roster.length,
     lastRefreshedAt,
   };
+}
+
+/**
+ * 🧬 La Crema's self-evolving cell state for /elite: every tracked cell
+ * (active gold, active traps, candidatas, retiradas) plus the recent diary.
+ * Tolerates a pre-migration DB by returning empty sets, never throwing.
+ */
+export function getCremaCellsOverview(db: Db) {
+  try {
+    const cells = loadAllCells(db);
+    const events = db.select().from(cremaEvolution).orderBy(desc(cremaEvolution.at)).limit(30).all();
+    return {
+      activeGold: cells.filter((c) => c.kind === "gold" && c.status === "activa"),
+      activeTraps: cells.filter((c) => c.kind === "trap" && c.status === "activa"),
+      candidatas: cells.filter((c) => c.status === "candidata"),
+      retiradas: cells.filter((c) => c.status === "retirada"),
+      events,
+    };
+  } catch {
+    return { activeGold: [], activeTraps: [], candidatas: [], retiradas: [], events: [] };
+  }
 }
 
 /** Everything the 🧩 Combo book needs — combo ledger only, never the others. */
