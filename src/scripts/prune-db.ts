@@ -136,8 +136,90 @@ function emergencyUnlink(dbPath: string): number {
   return freed;
 }
 
+/**
+ * Sweep stray files off the volume.
+ *
+ * Recovery leaves debris: a half-built rescue database, the SQL dump it was
+ * built from, a renamed corrupt original. Worse, `sqlite3 .recover` parks rows
+ * whose table it cannot identify into `lost_and_found`, so a "rescued" file can
+ * weigh gigabytes of unattributable junk. After the 2026-08-04 salvage the
+ * volume was still 86% full with an empty database — all of it debris.
+ *
+ * A salvaged file is kept ONLY while it holds paper trades worth merging back;
+ * otherwise it is junk occupying the space that caused the outage.
+ */
+function sweepStrayFiles(dir: string, dbPath: string): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return;
+  }
+
+  const keep = new Set([path.basename(dbPath), `${path.basename(dbPath)}-wal`, `${path.basename(dbPath)}-shm`]);
+  for (const name of entries) {
+    if (keep.has(name)) continue;
+    const full = path.join(dir, name);
+    let size = 0;
+    try {
+      const st = fs.statSync(full);
+      if (!st.isFile()) continue;
+      size = st.size;
+    } catch {
+      continue;
+    }
+
+    const isSalvage = /^la-sombra-salvaged-.*\.db$/.test(name);
+    const isDebris = /(\.corrupt$|^la-sombra-rescued\.db|\.sql$|-wal$|-shm$)/.test(name);
+
+    if (isSalvage) {
+      // Worth its space only if the trades actually came across.
+      let trades = 0;
+      let probe: Database.Database | null = null;
+      try {
+        probe = new Database(full, { readonly: true });
+        trades = (probe.prepare("SELECT COUNT(*) n FROM paper_trades").get() as { n: number })?.n ?? 0;
+      } catch {
+        trades = 0;
+      } finally {
+        probe?.close();
+      }
+      if (trades > 0) {
+        log.warn(`[prune:db] ${name} (${fmt(size)}) tiene ${trades} paper trades — SE CONSERVA para fusionarlo`);
+        continue;
+      }
+      log.warn(`[prune:db] ${name} (${fmt(size)}) no tiene paper trades utilizables — borrado, solo ocupaba espacio`);
+      try {
+        fs.rmSync(full, { force: true });
+      } catch (err) {
+        log.warn(`[prune:db] no se pudo borrar ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      continue;
+    }
+
+    if (isDebris) {
+      log.warn(`[prune:db] restos del rescate: borrando ${name} (${fmt(size)})`);
+      try {
+        fs.rmSync(full, { force: true });
+      } catch (err) {
+        log.warn(`[prune:db] no se pudo borrar ${name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      continue;
+    }
+
+    if (size > 50 * 1024 * 1024) {
+      // Not ours to delete, but the operator must know what is eating the disk.
+      log.warn(`[prune:db] archivo grande desconocido en el volumen: ${name} (${fmt(size)})`);
+    }
+  }
+}
+
 function main(): void {
   const dbPath = getDbPath();
+  // Sweep BEFORE the early return: debris outlives the database it came from,
+  // and on a fresh install it is the only thing on the volume.
+  sweepStrayFiles(path.dirname(dbPath), dbPath);
+
   if (!fs.existsSync(dbPath)) {
     log.info("[prune:db] no database yet — nothing to prune");
     return;

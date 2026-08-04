@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -59,12 +59,14 @@ function seed(): Database.Database {
   return new Database(dbPath, { readonly: true });
 }
 
-function runPrune(...args: string[]): void {
-  execFileSync(process.execPath, ["--import", "tsx", scriptPath, ...args], {
+/** Runs the pruner and returns BOTH streams — warnings go to stderr. */
+function runPrune(...args: string[]): string {
+  const r = spawnSync(process.execPath, ["--import", "tsx", scriptPath, ...args], {
     cwd: projectRoot,
     env: { ...process.env, DATABASE_PATH: dbPath },
-    stdio: "pipe",
+    encoding: "utf8",
   });
+  return `${r.stdout ?? ""}${r.stderr ?? ""}`;
 }
 
 const count = (db: Database.Database, table: string) =>
@@ -242,6 +244,51 @@ describe("prune-db — recuperación con el disco lleno", () => {
     expect(free).not.toBeNull();
     expect(free!).toBeGreaterThan(0);
     expect(CRITICAL_FREE_BYTES).toBeGreaterThan(0);
+  });
+});
+
+describe("prune-db — barrido de restos del rescate", () => {
+  it("borra la basura que dejó la recuperación y que mantenía el volumen al 86%", () => {
+    seed().close();
+    fs.writeFileSync(path.join(dir, "la-sombra-rescued.db"), Buffer.alloc(120_000, 1));
+    fs.writeFileSync(path.join(dir, "la-sombra-rescued.db.sql"), Buffer.alloc(90_000, 2));
+    fs.writeFileSync(`${dbPath}.corrupt`, Buffer.alloc(150_000, 3));
+
+    runPrune();
+
+    expect(fs.existsSync(path.join(dir, "la-sombra-rescued.db"))).toBe(false);
+    expect(fs.existsSync(path.join(dir, "la-sombra-rescued.db.sql"))).toBe(false);
+    expect(fs.existsSync(`${dbPath}.corrupt`)).toBe(false);
+    expect(fs.existsSync(dbPath)).toBe(true); // the real database is never swept
+  });
+
+  it("un archivo rescatado SIN paper trades es basura y se borra", () => {
+    seed().close();
+    const junk = path.join(dir, "la-sombra-salvaged-2026-08-04.db");
+    const j = new Database(junk);
+    // What `.recover` actually produces when it cannot attribute rows: a big
+    // lost_and_found table and nothing usable.
+    j.exec("CREATE TABLE lost_and_found (rootpgno INT, pgno INT, c0 TEXT)");
+    j.prepare("INSERT INTO lost_and_found VALUES (?,?,?)").run(1, 2, "x".repeat(1000));
+    j.close();
+
+    runPrune();
+
+    expect(fs.existsSync(junk)).toBe(false);
+  });
+
+  it("pero un rescatado CON paper trades se conserva para fusionarlo", () => {
+    seed().close();
+    const good = path.join(dir, "la-sombra-salvaged-2026-08-04.db");
+    const g = new Database(good);
+    g.exec("CREATE TABLE paper_trades (id TEXT PRIMARY KEY, realized_pnl REAL)");
+    g.prepare("INSERT INTO paper_trades VALUES (?,?)").run("t1", 4.5);
+    g.close();
+
+    const out = runPrune();
+
+    expect(fs.existsSync(good)).toBe(true);
+    expect(out).toMatch(/SE CONSERVA/);
   });
 });
 
