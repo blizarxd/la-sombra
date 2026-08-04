@@ -38,7 +38,7 @@ type State = {
 
 // One-shot force token: bump this string in a deploy to force the DAILY cycle
 // to run ONCE on the next tick, regardless of the 08:00 gate below.
-const DAILY_CYCLE_TOKEN = "2026-07-20-gold-engine";
+const DAILY_CYCLE_TOKEN = "2026-08-04-volume-recovery";
 
 // Johan's requested cut time: once a day, at 8am on HIS clock (APP_TZ).
 const DAILY_CYCLE_HOUR = 8;
@@ -52,6 +52,7 @@ const DAILY_CYCLE_HOUR = 8;
  * every lane permanently busy — a loop that fed itself.
  */
 const DAILY_STEPS: Array<{ file: string; args?: string[] }> = [
+  { file: "prune-db.ts" }, // 🧹 FIRST: keep the volume from filling (it hit 100% on 2026-08-04 and took the app down)
   { file: "scan-leaderboard.ts" }, // refresh the top-500 real-wallet queue (idempotent upsert)
   { file: "scan-crypto-markets.ts" }, // mine crypto-active wallets the PnL board hides
   { file: "scan-fast-markets.ts" }, // mine scalpers from fast-resolving markets
