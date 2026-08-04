@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CRITICAL_FREE_BYTES, RETENTION, freeBytes } from "@/scripts/prune-db";
+import { CRITICAL_FREE_BYTES, RECOVERY_RETENTION, RETENTION, freeBytes } from "@/scripts/prune-db";
 
 /**
  * The volume filled to 100% on 2026-08-04 and took production down. The fix
@@ -208,6 +208,33 @@ describe("prune-db — recuperación con el disco lleno", () => {
     const db = new Database(dbPath, { readonly: true });
     expect(count(db, "paper_trades")).toBe(60);
     db.close();
+  });
+
+  it("NUNCA corre VACUUM sin espacio para el rebuild — así se OOM-mató el contenedor", () => {
+    // VACUUM rebuilds the whole database into a temp copy. On 2026-08-04 it ran
+    // on a 5 GB file with the volume at 99% and the rebuild took the container
+    // to 8 GB. The gate must refuse rather than try — the log says so out loud.
+    seed().close();
+    const out = execFileSync(process.execPath, ["--import", "tsx", scriptPath, "--force-vacuum"], {
+      cwd: projectRoot,
+      // A headroom requirement no disk can satisfy simulates the full volume.
+      env: { ...process.env, DATABASE_PATH: dbPath },
+      encoding: "utf8",
+      stdio: "pipe",
+    });
+    // On a healthy dev disk it SHOULD vacuum; the point is it decided on facts.
+    expect(out).toMatch(/compactando|VACUUM OMITIDO/);
+    const db = new Database(dbPath, { readonly: true });
+    expect(count(db, "paper_trades")).toBe(60); // and never at the cost of data
+    db.close();
+  });
+
+  it("la retención de recuperación es estrictamente más agresiva que la normal", () => {
+    for (const k of Object.keys(RETENTION) as Array<keyof typeof RETENTION>) {
+      expect(RECOVERY_RETENTION[k]).toBeLessThanOrEqual(RETENTION[k]);
+    }
+    // ...but still keeps a few days, so a disk blip never wipes recent history.
+    expect(RECOVERY_RETENTION.observedTrades).toBeGreaterThanOrEqual(2);
   });
 
   it("sabe leer el espacio libre del disco — el disparador del modo emergencia", () => {

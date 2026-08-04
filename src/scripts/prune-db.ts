@@ -58,6 +58,31 @@ const VACUUM_THRESHOLD_BYTES = 200 * 1024 * 1024;
 /** Below this much free disk, SQL-based cleanup deadlocks — see STEP 0. */
 export const CRITICAL_FREE_BYTES = 150 * 1024 * 1024;
 
+/**
+ * Recovery retention: much tighter windows, used ONLY when the disk is
+ * critically full. Every table here is a re-fetchable log; the matrices and
+ * every strategy verdict read paper_trades, which this never touches.
+ */
+export const RECOVERY_RETENTION: typeof RETENTION = {
+  rawTradeJson: 1,
+  rawMarketJson: 1,
+  decisionJson: 2,
+  observedTrades: 5,
+  marketSnapshots: 2,
+  pnlSnapshots: 3,
+  leaderboardScans: 2,
+};
+
+/**
+ * VACUUM rebuilds the ENTIRE database into a temporary copy, so it needs free
+ * space of roughly the database's own size. Running it on a full volume is not
+ * merely useless — it is how the 2026-08-04 recovery attempt OOM-killed the
+ * container: the rebuild ballooned memory to 8 GB and Railway shot it. So
+ * VACUUM is gated on genuinely having room, and `--force-vacuum` can lower the
+ * slack threshold but can NEVER override this.
+ */
+const VACUUM_HEADROOM_FACTOR = 1.15;
+
 /** Rows per delete transaction, so no single journal has to be large. */
 const DELETE_CHUNK = 4000;
 
@@ -133,8 +158,20 @@ function main(): void {
     emergencyUnlink(dbPath);
   }
 
+  const retention = critical ? RECOVERY_RETENTION : RETENTION;
+  if (critical) log.warn(`[prune:db] retención agresiva activa (observed_trades ${retention.observedTrades}d)`);
+
   const sqlite = new Database(dbPath);
   sqlite.pragma("busy_timeout = 30000");
+  // Temp data goes to the volume, never to RAM. SQLite builds VACUUM's rebuild
+  // and large sorts in "temp storage"; some builds default that to memory, and
+  // a multi-GB rebuild held in RAM is exactly what OOM-killed this container on
+  // 2026-08-04. Keep it on disk where its size is visible and bounded.
+  try {
+    sqlite.pragma(`temp_store = FILE`);
+  } catch {
+    /* best effort — the VACUUM gate below is the real protection */
+  }
 
   // In recovery, a rollback journal per small transaction is cheaper than a WAL
   // that has to grow before it can shrink anything.
@@ -226,9 +263,9 @@ function main(): void {
   // updates: deletes are what actually return pages, and on a tight disk the
   // cheap wins must land first. Paper trades are NOT here — the matrices and
   // every strategy verdict are built on them.
-  deleteOld("observed_trades antiguos", "observed_trades", "created_at", now - RETENTION.observedTrades * DAY);
-  deleteOld("market_snapshots antiguos", "market_snapshots", "collected_at", now - RETENTION.marketSnapshots * DAY);
-  deleteOld("pnl_snapshots antiguos", "pnl_snapshots", "collected_at", now - RETENTION.pnlSnapshots * DAY);
+  deleteOld("observed_trades antiguos", "observed_trades", "created_at", now - retention.observedTrades * DAY);
+  deleteOld("market_snapshots antiguos", "market_snapshots", "collected_at", now - retention.marketSnapshots * DAY);
+  deleteOld("pnl_snapshots antiguos", "pnl_snapshots", "collected_at", now - retention.pnlSnapshots * DAY);
 
   // STEP 4 — blank raw payloads still inside the retention window. These are
   // verbatim API responses we already parsed into typed columns; nothing in the
@@ -237,50 +274,61 @@ function main(): void {
     "raw_trade_json vaciado",
     "observed_trades",
     `UPDATE observed_trades SET raw_trade_json='{}' WHERE created_at < ? AND LENGTH(raw_trade_json) > 2`,
-    now - RETENTION.rawTradeJson * DAY,
+    now - retention.rawTradeJson * DAY,
   );
   update(
     "raw_market_json vaciado",
     "market_snapshots",
     `UPDATE market_snapshots SET raw_market_json='{}' WHERE collected_at < ? AND LENGTH(raw_market_json) > 2`,
-    now - RETENTION.rawMarketJson * DAY,
+    now - retention.rawMarketJson * DAY,
   );
   update(
     "decision_journal texto vaciado",
     "decision_journal",
     `UPDATE decision_journal SET reasons_json='[]', risks_json='[]' WHERE created_at < ? AND (LENGTH(reasons_json) > 2 OR LENGTH(risks_json) > 2)`,
-    now - RETENTION.decisionJson * DAY,
+    now - retention.decisionJson * DAY,
   );
   update(
     "leaderboard_scans vaciado",
     "leaderboard_scans",
     `UPDATE leaderboard_scans SET raw_summary_json='{}' WHERE scanned_at < ? AND LENGTH(raw_summary_json) > 2`,
-    now - RETENTION.leaderboardScans * DAY,
+    now - retention.leaderboardScans * DAY,
   );
 
-  // STEP 5 — reclaim. DELETE leaves free pages inside the file; only VACUUM
-  // shrinks it on disk. VACUUM rewrites the whole database and holds a write
-  // lock the entire time, so it only earns its cost when there is real slack
-  // to give back — otherwise the daily run would stall every other lane for
-  // minutes to reclaim nothing.
+  // STEP 5 — reclaim, but only when it can actually succeed.
+  //
+  // DELETE leaves free pages inside the file; only VACUUM shrinks it on disk.
+  // The catch is that VACUUM rebuilds the WHOLE database into a temporary copy,
+  // so it needs free space about the size of the database itself. On 2026-08-04
+  // this script ran VACUUM on a 5 GB database with the volume at 99% and the
+  // rebuild OOM-killed the container at 8 GB — turning a recoverable disk
+  // problem into a crash loop. Shrinking the file is a NICE-TO-HAVE: once rows
+  // are deleted, SQLite reuses those free pages, so the database stops growing
+  // and the app runs fine at its current size. Never risk the boot for it.
   try {
+    const dbNow = fileSize(dbPath);
+    const freeNow = freeBytes(dir);
+    const needed = dbNow * VACUUM_HEADROOM_FACTOR;
     const freePages = Number((sqlite.pragma("freelist_count", { simple: true }) as number) ?? 0);
     const pageSize = Number((sqlite.pragma("page_size", { simple: true }) as number) ?? 4096);
     const slack = freePages * pageSize;
-    const forced = process.argv.includes("--force-vacuum");
-    if (forced || slack >= VACUUM_THRESHOLD_BYTES) {
-      log.info(
-        forced
-          ? `[prune:db] VACUUM forzado (arranque) — ${fmt(slack)} en páginas libres`
-          : `[prune:db] ${fmt(slack)} en páginas libres — corriendo VACUUM`,
+    const wantsVacuum = process.argv.includes("--force-vacuum") || slack >= VACUUM_THRESHOLD_BYTES;
+    const hasRoom = freeNow !== null && freeNow >= needed;
+
+    if (!wantsVacuum) {
+      log.info(`[prune:db] solo ${fmt(slack)} en páginas libres — VACUUM no hace falta`);
+    } else if (!hasRoom) {
+      // The important branch: refuse loudly instead of trying and dying.
+      log.warn(
+        `[prune:db] VACUUM OMITIDO a propósito: necesita ~${fmt(needed)} libres y hay ` +
+          `${freeNow === null ? "desconocido" : fmt(freeNow)}. Las ${fmt(slack)} en páginas libres se ` +
+          `reutilizan igual, así que el archivo deja de crecer y la app arranca. Se compactará solo ` +
+          `en un arranque futuro, cuando ya haya espacio.`,
       );
-      // VACUUM needs scratch space roughly the size of the result. If it still
-      // cannot run, that is survivable — the freed pages get reused, so the file
-      // stops growing — and must be reported honestly rather than swallowed.
+    } else {
+      log.info(`[prune:db] compactando: ${fmt(slack)} en páginas libres, ${fmt(freeNow)} de disco disponible`);
       sqlite.exec("VACUUM");
       log.info("[prune:db] VACUUM ok — espacio devuelto al disco");
-    } else {
-      log.info(`[prune:db] solo ${fmt(slack)} en páginas libres — VACUUM no hace falta`);
     }
   } catch (err) {
     log.warn(
