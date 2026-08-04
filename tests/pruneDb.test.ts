@@ -5,7 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { RETENTION } from "@/scripts/prune-db";
+import { CRITICAL_FREE_BYTES, RETENTION, freeBytes } from "@/scripts/prune-db";
 
 /**
  * The volume filled to 100% on 2026-08-04 and took production down. The fix
@@ -171,6 +171,50 @@ describe("prune-db — lo que sí limpia", () => {
     const db = new Database(dbPath, { readonly: true });
     expect(count(db, "pnl_snapshots")).toBeLessThan(30);
     db.close();
+  });
+});
+
+describe("prune-db — recuperación con el disco lleno", () => {
+  it("borra por lotes: una tabla enorme se limpia entera sin una transacción gigante", () => {
+    // The outage's real shape: ~8,875 signals/day for weeks. A single DELETE of
+    // that many rows needs a journal a full disk cannot give, so the pruner
+    // chunks it — this proves the loop actually drains the whole backlog.
+    const db = new Database(dbPath);
+    db.exec(`
+      CREATE TABLE paper_trades (id TEXT PRIMARY KEY, opened_at INTEGER, realized_pnl REAL, track TEXT);
+      CREATE TABLE observed_trades (id TEXT PRIMARY KEY, created_at INTEGER, raw_trade_json TEXT, wallet_address TEXT);
+    `);
+    const ins = db.prepare("INSERT INTO observed_trades VALUES (?,?,?,?)");
+    const many = db.transaction(() => {
+      for (let i = 0; i < 12000; i++) ins.run(`o${i}`, ago(RETENTION.observedTrades + 5), "{}", "0xabc");
+    });
+    many();
+    db.prepare("INSERT INTO paper_trades VALUES (?,?,?,?)").run("keep", ago(40), 3, "core");
+    db.close();
+
+    runPrune();
+
+    const check = new Database(dbPath, { readonly: true });
+    expect(count(check, "observed_trades")).toBe(0); // all 12k drained, not just one chunk
+    expect(count(check, "paper_trades")).toBe(1); // and the research data is untouched
+    check.close();
+  });
+
+  it("sobrevive a que el WAL desaparezca — la base principal queda consistente", () => {
+    seed().close();
+    // Simulates the emergency unlink: the sidecars are gone, the main file is not.
+    for (const s of ["-wal", "-shm"]) fs.rmSync(`${dbPath}${s}`, { force: true });
+    expect(() => runPrune()).not.toThrow();
+    const db = new Database(dbPath, { readonly: true });
+    expect(count(db, "paper_trades")).toBe(60);
+    db.close();
+  });
+
+  it("sabe leer el espacio libre del disco — el disparador del modo emergencia", () => {
+    const free = freeBytes(os.tmpdir());
+    expect(free).not.toBeNull();
+    expect(free!).toBeGreaterThan(0);
+    expect(CRITICAL_FREE_BYTES).toBeGreaterThan(0);
   });
 });
 
