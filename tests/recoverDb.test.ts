@@ -42,10 +42,10 @@ function seedHealthy(): void {
 }
 
 /** Runs the salvage and returns BOTH streams — warnings/errors go to stderr. */
-function runRecover(): string {
+function runRecover(extraEnv: Record<string, string> = {}): string {
   const r = spawnSync(process.execPath, ["--import", "tsx", scriptPath], {
     cwd: projectRoot,
-    env: { ...process.env, DATABASE_PATH: dbPath },
+    env: { ...process.env, DATABASE_PATH: dbPath, ...extraEnv },
     encoding: "utf8",
   });
   return `${r.stdout ?? ""}${r.stderr ?? ""}`;
@@ -110,6 +110,30 @@ describe("recover-db — seguridad del rescate", () => {
     expect(out).toMatch(/NO se toca el original|el rescate falló/);
     expect(fs.readFileSync(dbPath).equals(before)).toBe(true);
     expect(fs.existsSync(path.join(dir, "la-sombra-rescued.db"))).toBe(false);
+  });
+
+  it("sin ALLOW_FRESH_START jamás borra la base, aunque no rescate nada", () => {
+    fs.writeFileSync(dbPath, Buffer.alloc(200_000, 0x7a));
+    runRecover();
+    expect(fs.existsSync(dbPath)).toBe(true); // still there for manual recovery
+  });
+
+  it("con ALLOW_FRESH_START=1 sí la borra — pero eso es consentimiento explícito", () => {
+    fs.writeFileSync(dbPath, Buffer.alloc(200_000, 0x7a));
+    const out = runRecover({ ALLOW_FRESH_START: "1" });
+    expect(out).toMatch(/arrancando limpio|base corrupta borrada/);
+    expect(fs.existsSync(dbPath)).toBe(false); // migrations will create a fresh one
+  });
+
+  it("una base SANA nunca se borra, ni con ALLOW_FRESH_START=1 puesto", () => {
+    // The flag authorizes wiping a CORRUPT database, never a working one — a
+    // variable left set by accident must not cost anyone their data.
+    seedHealthy();
+    runRecover({ ALLOW_FRESH_START: "1" });
+    expect(fs.existsSync(dbPath)).toBe(true);
+    const db = new Database(dbPath, { readonly: true });
+    expect(count(db, "paper_trades")).toBe(40);
+    db.close();
   });
 
   it("nunca revienta el arranque, pase lo que pase", () => {

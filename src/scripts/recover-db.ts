@@ -245,6 +245,7 @@ function main(): void {
   log.warn("[recover:db] rescatando SOLO las tablas esenciales (los logs crudos se quedan atrás a propósito)");
 
   const dir = path.dirname(dbPath);
+  const oldSizeAtStart = sizeOf(dbPath);
   const rescuedPath = path.join(dir, "la-sombra-rescued.db");
   fs.rmSync(rescuedPath, { force: true });
   fs.rmSync(`${rescuedPath}-wal`, { force: true });
@@ -294,8 +295,42 @@ function main(): void {
   // is built on actually came across. A salvage that saved no trades saved
   // nothing worth having, and the corrupt file is then the better copy to keep.
   if (trades === 0) {
-    log.error("[recover:db] 0 paper trades rescatados — NO se toca el original. Hace falta recuperación manual.");
+    // Keep whatever `.recover` did manage to pull out. Even without trades it
+    // may hold wallet profiles or gold cells, it is small, and it costs nothing
+    // to park it next to the database for a later merge.
+    let keptPath: string | null = null;
+    if (fs.existsSync(rescuedPath) && sizeOf(rescuedPath) > 0) {
+      keptPath = path.join(dir, `la-sombra-salvaged-${new Date().toISOString().slice(0, 10)}.db`);
+      try {
+        fs.rmSync(keptPath, { force: true });
+        fs.renameSync(rescuedPath, keptPath);
+        log.warn(`[recover:db] lo poco rescatado queda guardado en ${path.basename(keptPath)} (${fmt(sizeOf(keptPath))})`);
+      } catch {
+        keptPath = null;
+      }
+    }
     fs.rmSync(rescuedPath, { force: true });
+
+    // Destroying 15 days of research is the operator's call, never the script's.
+    // ALLOW_FRESH_START is that explicit consent: without it we stay down and
+    // say so, because a crash-loop the operator can diagnose beats silently
+    // deleting the thing they were trying to save.
+    if (process.env.ALLOW_FRESH_START !== "1") {
+      log.error("[recover:db] 0 paper trades rescatados — NO se toca el original.");
+      log.error("[recover:db] Para arrancar de cero (BORRA la base corrupta), pon ALLOW_FRESH_START=1 en Railway.");
+      return;
+    }
+
+    log.warn("[recover:db] ALLOW_FRESH_START=1 — borrando la base corrupta y arrancando limpio");
+    try {
+      for (const s of ["", "-wal", "-shm"]) fs.rmSync(`${dbPath}${s}`, { force: true });
+      log.warn(
+        `[recover:db] base corrupta borrada (${fmt(oldSizeAtStart)} liberados). Las migraciones crearán una nueva vacía` +
+          (keptPath ? `. Lo rescatado sigue en ${path.basename(keptPath)}` : ""),
+      );
+    } catch (err) {
+      log.error(`[recover:db] no se pudo borrar la base corrupta: ${err instanceof Error ? err.message : String(err)}`);
+    }
     return;
   }
 
