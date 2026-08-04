@@ -9,8 +9,12 @@ FROM node:22-slim
 WORKDIR /app
 
 # Toolchain for better-sqlite3 in case a prebuilt binary is unavailable.
+# sqlite3 CLI is here for ONE reason: its `.recover` command rebuilds a database
+# by walking raw b-tree pages, so it still salvages data when the internal
+# schema table is damaged and the library API refuses to read anything. That is
+# exactly the state the 2026-08-04 full-volume corruption left us in.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates \
+  && apt-get install -y --no-install-recommends python3 make g++ ca-certificates sqlite3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Install deps against the lockfile (dev deps included — needed to build Next

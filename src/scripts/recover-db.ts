@@ -1,5 +1,6 @@
 import "../lib/env";
 import Database from "better-sqlite3";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { getDbPath } from "../db/client";
@@ -55,6 +56,13 @@ const ESSENTIAL_TABLES = [
 
 /** Rows per read/insert batch — small enough that one bad page costs little. */
 const CHUNK = 500;
+
+/**
+ * Tables whose INSERTs are dropped during a `.recover` rebuild. These are the
+ * raw payload logs that filled the volume in the first place; carrying them
+ * back would rebuild a 4.6 GB file onto a disk with megabytes free.
+ */
+const BLOAT_TABLES = ["observed_trades", "market_snapshots", "pnl_snapshots", "decision_journal"];
 
 const fmt = (bytes: number) => {
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(2)} GB`;
@@ -152,6 +160,74 @@ function salvageTable(src: Database.Database, dest: Database.Database, table: st
   return { saved, skipped };
 }
 
+/**
+ * Deep salvage via the sqlite3 CLI's `.recover`, which walks raw b-tree pages
+ * instead of trusting the schema table — the only thing that still works once
+ * sqlite_master itself is unreadable, which is where the library API gives up
+ * and returns nothing at all.
+ *
+ * The dumped SQL is filtered on the way through: rows belonging to the raw
+ * payload logs are dropped, so the rebuild stays in the megabytes a nearly full
+ * volume can actually hold instead of recreating the 4.6 GB that caused this.
+ */
+function deepRecover(dbPath: string, rescuedPath: string): boolean {
+  const sqlPath = `${rescuedPath}.sql`;
+  fs.rmSync(sqlPath, { force: true });
+
+  const dump = spawnSync("sqlite3", [dbPath, ".recover"], {
+    maxBuffer: 512 * 1024 * 1024,
+    encoding: "buffer",
+  });
+  if (dump.error) {
+    log.warn(`[recover:db] sqlite3 .recover no disponible: ${dump.error.message}`);
+    return false;
+  }
+  const text = dump.stdout?.toString("utf8") ?? "";
+  if (text.trim().length === 0) {
+    log.warn("[recover:db] .recover no devolvió nada");
+    return false;
+  }
+
+  // Drop the bloat tables entirely: their CREATEs and their INSERTs.
+  const skip = new RegExp(`^(INSERT INTO|CREATE TABLE|CREATE INDEX)[^"']*["']?(${BLOAT_TABLES.join("|")})\\b`, "i");
+  const kept: string[] = [];
+  let dropped = 0;
+  for (const line of text.split("\n")) {
+    if (skip.test(line.trim())) {
+      dropped++;
+      continue;
+    }
+    kept.push(line);
+  }
+  fs.writeFileSync(sqlPath, kept.join("\n"), "utf8");
+  log.info(`[recover:db] .recover produjo ${kept.length} sentencias (${dropped} descartadas por ser logs crudos)`);
+
+  const build = spawnSync("sqlite3", [rescuedPath], {
+    input: fs.readFileSync(sqlPath),
+    maxBuffer: 512 * 1024 * 1024,
+  });
+  fs.rmSync(sqlPath, { force: true });
+  if (build.status !== 0) {
+    // Partial rebuilds are normal here — report, then judge by what came out.
+    log.warn(`[recover:db] la reconstrucción reportó errores: ${build.stderr?.toString("utf8").slice(0, 300)}`);
+  }
+  return fs.existsSync(rescuedPath) && sizeOf(rescuedPath) > 0;
+}
+
+/** How many paper trades made it into a rescued file (0 if unreadable). */
+function tradesIn(dbFile: string): number {
+  let db: Database.Database | null = null;
+  try {
+    db = new Database(dbFile, { readonly: true });
+    const r = db.prepare("SELECT COUNT(*) n FROM paper_trades").get() as { n: number };
+    return r?.n ?? 0;
+  } catch {
+    return 0;
+  } finally {
+    db?.close();
+  }
+}
+
 function main(): void {
   const dbPath = getDbPath();
   if (!fs.existsSync(dbPath)) {
@@ -192,15 +268,27 @@ function main(): void {
       }
     }
   } catch (err) {
-    log.error(`[recover:db] el rescate falló: ${err instanceof Error ? err.message : String(err)}`);
+    log.warn(`[recover:db] el rescate directo falló: ${err instanceof Error ? err.message : String(err)}`);
+  } finally {
     src?.close();
     dest?.close();
-    return;
   }
 
-  const trades = results.find(([t]) => t === "paper_trades")?.[1] ?? 0;
-  src.close();
-  dest.close();
+  let trades = results.find(([t]) => t === "paper_trades")?.[1] ?? 0;
+
+  // PASS 2 — the library API reads through sqlite_master, so when THAT is the
+  // damaged part it returns nothing at all (exactly what happened on the first
+  // attempt: zero rows, zero errors, every table silently empty). `.recover`
+  // does not trust the schema table — it walks raw b-tree pages — so it is the
+  // only thing left that can still find the data.
+  if (trades === 0) {
+    log.warn("[recover:db] el rescate directo no sacó nada — intentando .recover (páginas crudas)");
+    fs.rmSync(rescuedPath, { force: true });
+    if (deepRecover(dbPath, rescuedPath)) {
+      trades = tradesIn(rescuedPath);
+      log.info(`[recover:db] .recover rescató ${trades} paper trades`);
+    }
+  }
 
   // The gate: never destroy the original unless the table the entire strategy
   // is built on actually came across. A salvage that saved no trades saved
