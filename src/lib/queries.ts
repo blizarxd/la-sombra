@@ -689,15 +689,41 @@ export function getCremaCellsOverview(db: Db) {
   try {
     const cells = loadAllCells(db);
     const events = db.select().from(cremaEvolution).orderBy(desc(cremaEvolution.at)).limit(30).all();
+    // Exploratory copies are booked apart: the price of learning must never be
+    // read as the strategy's own performance.
+    const explore = db
+      .select({
+        n: sql<number>`count(*)`,
+        pnl: sql<number>`coalesce(sum(${paperTrades.realizedPnl}), 0)`,
+        staked: sql<number>`coalesce(sum(${paperTrades.simulatedPositionSize}), 0)`,
+      })
+      .from(paperTrades)
+      .where(and(eq(paperTrades.track, "elite"), eq(paperTrades.exploratory, true)))
+      .get();
     return {
       activeGold: cells.filter((c) => c.kind === "gold" && c.status === "activa"),
       activeTraps: cells.filter((c) => c.kind === "trap" && c.status === "activa"),
       candidatas: cells.filter((c) => c.status === "candidata"),
+      // 👻 Nominated by the shadow book (declined signals), awaiting real fills.
+      sospechas: cells.filter((c) => c.status === "sospecha"),
       retiradas: cells.filter((c) => c.status === "retirada"),
+      exploration: {
+        n: explore?.n ?? 0,
+        pnl: explore?.pnl ?? 0,
+        roi: explore && explore.staked > 0 ? explore.pnl / explore.staked : null,
+      },
       events,
     };
   } catch {
-    return { activeGold: [], activeTraps: [], candidatas: [], retiradas: [], events: [] };
+    return {
+      activeGold: [],
+      activeTraps: [],
+      candidatas: [],
+      sospechas: [],
+      retiradas: [],
+      exploration: { n: 0, pnl: 0, roi: null },
+      events: [],
+    };
   }
 }
 

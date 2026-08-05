@@ -84,7 +84,8 @@ describe("buildMatrix", () => {
       spec,
     );
     expect(m.bestPerCol.core).toBe("p45");
-    expect(m.worstPerCol.core).toBe("p60");
+    // 🚫 is NOT a wooden spoon: p60 makes +10%, so it is not a leak to warn about.
+    expect(m.worstPerCol.core).toBeNull();
   });
 
   it("never crowns a cell below minSample — no 1-trade flukes", () => {
@@ -94,6 +95,22 @@ describe("buildMatrix", () => {
         t({ entryPrice: 0.95, realizedPnl: 500, simulatedPositionSize: 10 }),
         ...Array.from({ length: 3 }, () => t({ entryPrice: 0.65, realizedPnl: 1, simulatedPositionSize: 10 })),
         ...Array.from({ length: 3 }, () => t({ entryPrice: 0.5, realizedPnl: -1, simulatedPositionSize: 10 })),
+      ],
+      spec,
+    );
+    expect(m.bestPerCol.core).toBe("p60");
+    // Three trades at −10% is not enough to condemn a cell either.
+    expect(m.worstPerCol.core).toBeNull();
+  });
+
+  it("🚫 sí marca una fuga real: pérdida grande y sostenida", () => {
+    const m = buildMatrix(
+      [
+        ...Array.from({ length: 60 }, (_, i) =>
+          t({ entryPrice: 0.65, realizedPnl: i % 10 < 7 ? 5 : -10, simulatedPositionSize: 10 }),
+        ),
+        // p45 loses almost everything, over and over. THIS is a warning.
+        ...Array.from({ length: 60 }, () => t({ entryPrice: 0.5, realizedPnl: -10, simulatedPositionSize: 10 })),
       ],
       spec,
     );

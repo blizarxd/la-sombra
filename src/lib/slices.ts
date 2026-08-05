@@ -14,6 +14,7 @@
  */
 import { categorizeMarket, CATEGORY_LABELS, type CategoryKey } from "./category";
 import { hourInAppTz, weekdayInAppTz } from "./format";
+import { edgeStats, mean } from "./stats";
 
 export const MATRIX_TRACKS = ["core", "live", "trade", "crypto", "elite"] as const;
 export type MatrixTrack = (typeof MATRIX_TRACKS)[number];
@@ -37,7 +38,27 @@ export type SettledTrade = {
    *  (whose category field is ~98% null). So category slices are only as good
    *  as the text classifier, not as the exchange data. */
   marketQuestion: string | null;
+  /** When the position settled. Optional: absent on older rows and on shadow
+   *  (counterfactual) trades, which is why every duration metric is nullable. */
+  resolvedAt?: Date | number | null;
+  closedAt?: Date | number | null;
 };
+
+const ms = (d: Date | number | null | undefined): number | null =>
+  d == null ? null : d instanceof Date ? d.getTime() : d;
+
+/**
+ * Hours of capital exposure: open → settle. Because every book holds to
+ * resolution, this doubles as the trade's real time-to-resolution — which is why
+ * there is no separate snapshot join for it.
+ */
+export function holdHours(t: SettledTrade): number | null {
+  const open = ms(t.openedAt);
+  const end = ms(t.resolvedAt) ?? ms(t.closedAt);
+  if (open === null || end === null) return null;
+  const h = (end - open) / 3_600_000;
+  return h >= 0 ? h : null;
+}
 
 export type Axis = { key: string; label: string };
 
@@ -53,6 +74,15 @@ export type MatrixCell = {
   roi: number;
   count: number;
   winRate: number;
+  /** Lower confidence bound on per-trade ROI. Null below 2 trades. */
+  lcb: number | null;
+  /** Same bound priced for the fact that this cell competed against every other
+   *  cell in the matrix for the crown. THIS is what 🏆/🚫 are decided on. */
+  strictLcb: number | null;
+  /** Mean hours of capital exposure. Null when no trade in the cell has a settle time. */
+  avgHoldHours: number | null;
+  /** ROI per DAY of capital tied up: +8% in 4h beats +20% in 5 days. */
+  roiPerDay: number | null;
 };
 
 export type MatrixRow = {
@@ -133,6 +163,31 @@ export function priceBandKey(entryPrice: number): string | null {
   return "p90";
 }
 
+/**
+ * ⏳ How long the money stayed on the table. Collected for free from
+ * openedAt→resolvedAt, and it asks a question no other dimension can: is
+ * "esports ≤29¢" really about esports, or about ANY cheap market that resolves
+ * within the hour? The second rule would transfer to every other category; the
+ * first would not. Confusing the two is how a fluke becomes a strategy.
+ */
+export const HOLD_BANDS: Axis[] = [
+  { key: "t00", label: "⚡ < 1h · relámpago" },
+  { key: "t01", label: "🕐 1–6h" },
+  { key: "t06", label: "🌗 6–24h" },
+  { key: "t24", label: "📆 1–3 días" },
+  { key: "t72", label: "🐢 > 3 días · capital dormido" },
+];
+
+export function holdBandKey(t: SettledTrade): string | null {
+  const h = holdHours(t);
+  if (h === null) return null;
+  if (h < 1) return "t00";
+  if (h < 6) return "t01";
+  if (h < 24) return "t06";
+  if (h < 72) return "t24";
+  return "t72";
+}
+
 export const TRACK_AXIS: Axis[] = MATRIX_TRACKS.map((t) => ({ key: t, label: TRACK_LABELS[t] }));
 
 // Category axis in a stable, human order (not alphabetical). "otros" last.
@@ -157,6 +212,7 @@ export const DIMS = {
     keyOf: (t: SettledTrade) => ((MATRIX_TRACKS as readonly string[]).includes(t.track) ? t.track : null),
   } satisfies Dim,
   category: { axis: CATEGORY_AXIS, keyOf: (t: SettledTrade) => categorizeMarket(t.marketQuestion) } satisfies Dim,
+  holdBand: { axis: HOLD_BANDS, keyOf: (t: SettledTrade) => holdBandKey(t) } satisfies Dim,
 };
 
 // ---------------------------------------------------------------------------
@@ -169,7 +225,7 @@ export function buildMatrix(
   trades: SettledTrade[],
   spec: { id: string; title: string; hint: string; minSample: number; rowDim: Dim; colDim: Dim },
 ): Matrix {
-  type Agg = { pnl: number; staked: number; count: number; wins: number };
+  type Agg = { pnl: number; staked: number; count: number; wins: number; rois: number[]; holds: number[] };
   const grid = new Map<string, Map<string, Agg>>(); // rowKey -> colKey -> agg
   let sampleSize = 0;
 
@@ -179,15 +235,23 @@ export function buildMatrix(
     if (!rowKey || !colKey) continue;
     sampleSize++;
     const row = grid.get(rowKey) ?? new Map<string, Agg>();
-    const agg = row.get(colKey) ?? { pnl: 0, staked: 0, count: 0, wins: 0 };
+    const agg = row.get(colKey) ?? { pnl: 0, staked: 0, count: 0, wins: 0, rois: [], holds: [] };
     const pnl = t.realizedPnl ?? 0;
+    const stake = t.simulatedPositionSize || 0;
     agg.pnl += pnl;
-    agg.staked += t.simulatedPositionSize || 0;
+    agg.staked += stake;
     agg.count += 1;
     if (pnl > 0) agg.wins += 1;
+    if (stake > 0) agg.rois.push(pnl / stake); // per-trade ROI — the unit the bounds need
+    const h = holdHours(t);
+    if (h !== null) agg.holds.push(h);
     row.set(colKey, agg);
     grid.set(rowKey, row);
   }
+
+  // Every cell in this matrix competed for the crown; that is the multiplicity
+  // the strict bound has to price in.
+  const cellsTested = [...grid.values()].reduce((a, row) => a + row.size, 0);
 
   const rows: MatrixRow[] = [];
   for (const axis of spec.rowDim.axis) {
@@ -202,11 +266,21 @@ export function buildMatrix(
         cells[col.key] = null;
         continue;
       }
+      const stats = edgeStats(agg.rois, cellsTested);
+      const roi = agg.staked > 0 ? agg.pnl / agg.staked : 0;
+      // Clamp to an hour: a market that settles in 4 minutes would otherwise
+      // report a four-figure "ROI per day" that no capital could ever harvest.
+      const avgHold = agg.holds.length > 0 ? mean(agg.holds) : null;
+      const days = avgHold === null ? null : Math.max(avgHold, 1) / 24;
       cells[col.key] = {
         pnl: round2(agg.pnl),
-        roi: agg.staked > 0 ? agg.pnl / agg.staked : 0,
+        roi,
         count: agg.count,
         winRate: agg.wins / agg.count,
+        lcb: stats.lcb,
+        strictLcb: stats.strictLcb,
+        avgHoldHours: avgHold === null ? null : round2(avgHold),
+        roiPerDay: days === null || days <= 0 ? null : roi / days,
       };
       totalPnl += agg.pnl;
       totalCount += agg.count;
@@ -214,21 +288,30 @@ export function buildMatrix(
     rows.push({ key: axis.key, label: axis.label, cells, totalPnl: round2(totalPnl), totalCount });
   }
 
+  // The crowns used to be handed out on RAW ROI, so a 5-trade fluke could beat a
+  // 300-trade edge and get read as a finding. They are now decided on the
+  // multiplicity-corrected lower bound: what is the worst this cell plausibly
+  // is, given that it won a contest against every other cell here?
   const bestPerCol: Record<string, string | null> = {};
   const worstPerCol: Record<string, string | null> = {};
   for (const col of spec.colDim.axis) {
-    let best: { key: string; roi: number } | null = null;
-    let worst: { key: string; roi: number } | null = null;
+    let qualifying = 0;
+    let best: { key: string; score: number } | null = null;
+    let worst: { key: string; score: number } | null = null;
     for (const row of rows) {
       const cell = row.cells[col.key];
-      if (!cell || cell.count < spec.minSample) continue;
-      if (!best || cell.roi > best.roi) best = { key: row.key, roi: cell.roi };
-      if (!worst || cell.roi < worst.roi) worst = { key: row.key, roi: cell.roi };
+      if (!cell || cell.count < spec.minSample || cell.strictLcb === null) continue;
+      qualifying++;
+      if (!best || cell.strictLcb > best.score) best = { key: row.key, score: cell.strictLcb };
+      // 🚫 is a WARNING, not a wooden spoon: it goes to a cell that loses even
+      // under generous assumptions (upper bound still below zero). "Least good
+      // among winners" is a ranking artefact and must never be flagged as a leak.
+      const upper = cell.roi + (cell.roi - cell.strictLcb);
+      if (upper < 0 && (!worst || upper < worst.score)) worst = { key: row.key, score: upper };
     }
-    // With a single qualifying cell there is no "best vs worst" to speak of.
-    const twoOrMore = best && worst && best.key !== worst.key;
-    bestPerCol[col.key] = twoOrMore ? best!.key : null;
-    worstPerCol[col.key] = twoOrMore ? worst!.key : null;
+    // With a single qualifying cell there is no contest to win.
+    bestPerCol[col.key] = qualifying >= 2 && best ? best.key : null;
+    worstPerCol[col.key] = qualifying >= 2 && worst ? worst.key : null;
   }
 
   return {
@@ -258,12 +341,16 @@ export function summarizeMatrices(matrices: Matrix[]) {
       m.cols
         .map((col) => ({ col, cell: row.cells[col.key] }))
         .filter((x): x is { col: Axis; cell: MatrixCell } => !!x.cell && x.cell.count >= m.minSample)
-        .map(
-          (x) =>
-            `${row.label} × ${x.col.label}: PnL ${x.cell.pnl.toFixed(2)}, ROI ${(x.cell.roi * 100).toFixed(1)}%, n=${
-              x.cell.count
-            }, aciertos ${(x.cell.winRate * 100).toFixed(0)}%`,
-        ),
+        .map((x) => {
+          // The bound is spelled out for the model too: a headline ROI with a
+          // negative floor is a hypothesis, and it should argue like it is one.
+          const floor = x.cell.strictLcb === null ? "s/d" : `${(x.cell.strictLcb * 100).toFixed(1)}%`;
+          const perDay = x.cell.roiPerDay === null ? "" : `, ROI/día ${(x.cell.roiPerDay * 100).toFixed(1)}%`;
+          const hold = x.cell.avgHoldHours === null ? "" : `, dura ${x.cell.avgHoldHours.toFixed(1)}h`;
+          return `${row.label} × ${x.col.label}: PnL ${x.cell.pnl.toFixed(2)}, ROI ${(x.cell.roi * 100).toFixed(1)}%, piso ${floor}, n=${
+            x.cell.count
+          }, aciertos ${(x.cell.winRate * 100).toFixed(0)}%${perDay}${hold}`;
+        }),
     ),
   }));
 }
@@ -326,6 +413,22 @@ export function buildAllMatrices(trades: SettledTrade[]): Matrix[] {
       minSample: 5,
       rowDim: DIMS.category,
       colDim: DIMS.hourBlock,
+    }),
+    buildMatrix(trades, {
+      id: "hold-track",
+      title: "⏳ Duración hasta resolver × brazo",
+      hint: "Cuánto tiempo queda el dinero atado. Un +8% en 4h rota seis veces al día; un +20% en 5 días, no. Mira la columna ROI/día, no el ROI.",
+      minSample: 5,
+      rowDim: DIMS.holdBand,
+      colDim: DIMS.track,
+    }),
+    buildMatrix(trades, {
+      id: "hold-category",
+      title: "⏳🏷️ Duración × categoría",
+      hint: "La pregunta que desarma un espejismo: ¿'esports barato' rinde por ser esports, o por resolverse en menos de una hora? Si es lo segundo, la regla sirve para TODAS las categorías.",
+      minSample: 5,
+      rowDim: DIMS.holdBand,
+      colDim: DIMS.category,
     }),
   ];
 }

@@ -2,7 +2,7 @@ import { getDb } from "@/db/client";
 import { getCremaCellsOverview, getEliteBookStats, getRealizedPnlSeries } from "@/lib/queries";
 import { CREMA_REBUILD_MS, goldRuleLabel } from "@/lib/cremaCells";
 import type { CellRow } from "@/lib/goldEngine";
-import { HITS_TO_ACTIVATE, MAX_ACTIVE_GOLD, MIN_CELL_N, MISSES_TO_RETIRE } from "@/lib/goldEngine";
+import { EXPLORE_BUDGET, HITS_TO_ACTIVATE, MAX_ACTIVE_GOLD, MIN_CELL_N, MISSES_TO_RETIRE } from "@/lib/goldEngine";
 import { money, pct, when } from "@/lib/format";
 import { Card, PnlText, Stat, Table, Td, Th } from "../components/ui";
 import { PnlChart } from "../components/PnlChart";
@@ -138,6 +138,55 @@ export default function ElitePage() {
             {cellsOverview.candidatas.length > 6 ? " …" : ""}
           </p>
         ) : null}
+      </Card>
+
+      <Card title="👻 El Libro Sombra — sospechas de oro donde nunca apostamos">
+        <p className="text-[11px] leading-4 text-mist">
+          Cada señal que <b>descartamos</b> se sigue hasta su resultado, así que sabemos qué habría pagado. Son ~100
+          veces más datos que nuestras propias copias, y son la única forma de encontrar una veta en la que el bot nunca
+          entró: antes solo podía descubrir oro donde ya estaba apostando, y por eso se confirmaba a sí mismo.
+          <br />
+          <b className="text-white">Estas celdas NO operan.</b> Un contrafactual no paga spread ni sufre deslizamiento,
+          así que es optimista por construcción: solo puede <i>nominar</i>. La confirmación la compra el presupuesto de
+          exploración con llenado real.
+        </p>
+        {cellsOverview.sospechas.length === 0 ? (
+          <p className="mt-2 text-sm text-mist">
+            Todavía no hay sospechas — hacen falta señales descartadas ya resueltas. El primer corte con datos frescos
+            las empieza a levantar.
+          </p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Celda sospechosa</Th>
+                <Th>Evidencia contrafactual</Th>
+                <Th className="text-right">Copias reales</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {cellsOverview.sospechas.map((c) => (
+                <tr key={c.id} className="border-t border-edge">
+                  <Td className="font-medium text-white">{c.label}</Td>
+                  <Td className="text-mist">
+                    <EvidenceCells cell={c} />
+                  </Td>
+                  <Td className="text-right text-mist">{c.realN > 0 ? c.realN : "—"}</Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        <p className="mt-2 text-[11px] leading-4 text-mist">
+          🎲 <b>Exploración</b>: el {Math.round(EXPLORE_BUDGET * 100)}% de las copias se reserva para la celda{" "}
+          <i>menos conocida</i> (la que menos llenado real tiene), no para la de mejor ROI — ahí es donde una copia
+          compra más información. Llevamos <b className="text-white">{cellsOverview.exploration.n}</b> copias de
+          exploración
+          {cellsOverview.exploration.roi !== null
+            ? ` · ROI ${(cellsOverview.exploration.roi * 100).toFixed(1)}%`
+            : ""}
+          . Van en cuenta aparte: el precio de aprender no se mezcla con el resultado de la estrategia.
+        </p>
       </Card>
 
       {elite.byRule.size > 0 ? (

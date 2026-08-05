@@ -224,6 +224,13 @@ export const paperTrades = sqliteTable(
      * legacy hole buries whatever the new design is actually doing.
      */
     goldRule: text("gold_rule"),
+    /**
+     * 🎲 Opened by the EXPLORATION budget, not by an active gold cell. The
+     * hybrid can only learn about cells it enters, so a small slice of copies
+     * deliberately goes to the least-known ones. Kept separable so the price of
+     * learning never gets read as the strategy's own performance.
+     */
+    exploratory: integer("exploratory", { mode: "boolean" }).notNull().default(false),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
@@ -420,10 +427,14 @@ export const cremaCells = sqliteTable(
     kind: text("kind", { enum: ["gold", "trap"] }).notNull(),
     label: text("label").notNull(),
     paramsJson: text("params_json").notNull(), // serialized CellParams (arm/category/hourBlock/priceBand)
-    status: text("status", { enum: ["candidata", "activa", "retirada"] }).notNull(),
+    status: text("status", { enum: ["sospecha", "candidata", "activa", "retirada"] }).notNull(),
     hits: integer("hits").notNull().default(0), // consecutive scans as survivor
     misses: integer("misses").notNull().default(0), // consecutive scans failing
     evidenceJson: text("evidence_json"), // latest per-window stats, for the UI
+    // "real" = settled paper copies; "shadow" = counterfactual outcomes of the
+    // signals we declined. Shadow cells nominate; only real evidence activates.
+    evidenceSource: text("evidence_source", { enum: ["real", "shadow"] }).notNull().default("real"),
+    realN: integer("real_n").notNull().default(0), // settled REAL copies behind the cell
     firstSeenAt: integer("first_seen_at", { mode: "timestamp_ms" }).notNull(),
     activatedAt: integer("activated_at", { mode: "timestamp_ms" }),
     retiredAt: integer("retired_at", { mode: "timestamp_ms" }),

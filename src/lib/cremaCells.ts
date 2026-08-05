@@ -54,6 +54,10 @@ function seedRow(id: string, kind: "gold" | "trap"): CellRow {
     hits: 2,
     misses: 0,
     windows: null,
+    // The seeds came from a scan of REAL settled copies (the manual 2026-07-20
+    // sweep), so they start on the real tier — the shadow stream did not exist yet.
+    evidenceSource: "real",
+    realN: 0, // unknown from the frozen scan; the first live scan fills it in
     firstSeenAt: CREMA_REBUILD_MS,
     activatedAt: CREMA_REBUILD_MS,
     retiredAt: null,
@@ -92,6 +96,8 @@ function rowFromDb(r: typeof cremaCells.$inferSelect): CellRow {
     hits: r.hits,
     misses: r.misses,
     windows,
+    evidenceSource: r.evidenceSource,
+    realN: r.realN,
     firstSeenAt: r.firstSeenAt.getTime(),
     activatedAt: r.activatedAt?.getTime() ?? null,
     retiredAt: r.retiredAt?.getTime() ?? null,
@@ -113,19 +119,48 @@ export function loadAllCells(db: Db): CellRow[] {
 export function loadActiveCells(db: Db): { cells: CellRow[]; fromSeed: boolean } {
   try {
     const rows = db.select().from(cremaCells).all().map(rowFromDb);
-    if (rows.length > 0) return { cells: rows.filter((r) => r.status === "activa"), fromSeed: false };
+    // "sospecha" rows travel with the active set on purpose: they never produce
+    // a gold verdict, but the exploration budget needs to see them to aim at.
+    if (rows.length > 0) {
+      return { cells: rows.filter((r) => r.status === "activa" || r.status === "sospecha"), fromSeed: false };
+    }
   } catch {
     // table missing (pre-migration) — fall through to seeds
   }
   return { cells: seedCells(), fromSeed: true };
 }
 
+/**
+ * Deterministic 0–1 roll for the exploration budget, derived from the signal's
+ * own id. Never Math.random: the same signal must always get the same verdict,
+ * so a decision can be re-derived from the journal months later.
+ */
+export function exploreRollFor(seed: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return ((h >>> 0) % 100000) / 100000;
+}
+
 /** The verdict score-trades asks for on every arm copy. */
 export function cremaVerdict(
   db: Db,
-  input: { arm: MatrixTrack; category: CategoryKey; hourInAppTz: number; entryPrice: number },
+  input: {
+    arm: MatrixTrack;
+    category: CategoryKey;
+    hourInAppTz: number;
+    entryPrice: number;
+    /** Signal id; presence of this is what enables exploration for the call. */
+    exploreSeed?: string;
+  },
 ): GoldVerdict {
-  return verdictFromCells(loadActiveCells(db).cells, input as VerdictInput);
+  const { exploreSeed, ...rest } = input;
+  return verdictFromCells(loadActiveCells(db).cells, {
+    ...rest,
+    exploreRoll: exploreSeed === undefined ? undefined : exploreRollFor(exploreSeed),
+  } as VerdictInput);
 }
 
 // ---------------------------------------------------------------------------

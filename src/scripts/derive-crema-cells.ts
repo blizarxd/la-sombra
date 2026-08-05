@@ -5,6 +5,7 @@ import { loadAllCells, seedCells } from "@/lib/cremaCells";
 import { applyScan, scanCells, type CellEvent, type CellRow } from "@/lib/goldEngine";
 import { newId } from "@/lib/ids";
 import { log } from "@/lib/logger";
+import { loadShadowTrades } from "@/lib/shadowBook";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
 import { runScript } from "./_runner";
 
@@ -49,14 +50,21 @@ runScript("derive:crema-cells", async (db) => {
       realizedPnl: paperTrades.realizedPnl,
       openedAt: paperTrades.openedAt,
       marketQuestion: paperTrades.marketQuestion,
+      resolvedAt: paperTrades.resolvedAt,
+      closedAt: paperTrades.closedAt,
     })
     .from(paperTrades)
     .where(sql`${paperTrades.status} != 'open' AND ${paperTrades.track} IN ('core','live','trade','crypto')`)
     .all();
 
-  const scan = scanCells(settled, now);
+  // 👻 The second stream: what the signals we DECLINED went on to do. Roughly
+  // 100× the volume of our own copies, and the only way the scan can find a vein
+  // the strategy has never entered.
+  const shadow = loadShadowTrades(db);
+
+  const scan = scanCells(settled, now, shadow);
   log.info(
-    `[derive:crema-cells] scanned ${settled.length} settled source trades → ${scan.gold.length} gold survivors, ${scan.traps.length} traps`,
+    `[derive:crema-cells] scanned ${settled.length} settled source trades + ${shadow.length} shadow outcomes → ${scan.gold.length} gold survivors, ${scan.traps.length} traps, ${scan.suspects.length} suspects`,
   );
 
   const { rows, events } = applyScan(loadAllCells(db), scan, now);
@@ -70,8 +78,8 @@ runScript("derive:crema-cells", async (db) => {
     } traps · events: ${events.map((e) => `${e.action}:${e.cellId}`).join(", ") || "none"}`,
   );
 
-  // Only true transitions deserve a ping — candidatas are routine.
-  const notable = events.filter((e) => ["activada", "podada", "reactivada"].includes(e.action));
+  // Only true transitions deserve a ping — candidatas and sospechas are routine.
+  const notable = events.filter((e) => ["activada", "podada", "reactivada", "confirmada-real"].includes(e.action));
   if (notable.length > 0 && telegramConfigured()) {
     const lines = notable.map((e) => `· <b>${e.action.toUpperCase()}</b> ${escapeHtml(e.detail)}`).join("\n");
     await sendTelegramMessage(`🧬 <b>La Crema evolucionó</b> (escaneo diario de oro)\n${lines}`);
@@ -88,6 +96,8 @@ function persistCell(db: Db, cell: CellRow, now: number): void {
     hits: cell.hits,
     misses: cell.misses,
     evidenceJson: cell.windows ? JSON.stringify(cell.windows) : null,
+    evidenceSource: cell.evidenceSource,
+    realN: cell.realN,
     firstSeenAt: new Date(cell.firstSeenAt),
     activatedAt: cell.activatedAt ? new Date(cell.activatedAt) : null,
     retiredAt: cell.retiredAt ? new Date(cell.retiredAt) : null,

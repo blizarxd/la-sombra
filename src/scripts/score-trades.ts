@@ -53,6 +53,9 @@ async function maybeOpenEliteMirror(
     category,
     hourInAppTz: hourInAppTz(params.now),
     entryPrice,
+    // 🎲 Lets a budgeted slice of signals reach cells the shadow book only
+    // SUSPECTS, so the engine can stop being blind to veins it never entered.
+    exploreSeed: params.journalId,
   });
   if (!verdict.gold) return;
 
@@ -80,16 +83,25 @@ async function maybeOpenEliteMirror(
   if (opened.opened && opened.paperTradeId && verdict.ruleId) {
     // Stamp WHICH gold cell let this copy in, so each cell is judged apart and
     // the new design stays separable from the pre-rebuild legacy (gold_rule null).
-    db.update(paperTrades).set({ goldRule: verdict.ruleId }).where(eq(paperTrades.id, opened.paperTradeId)).run();
+    // `exploratory` keeps the price of learning out of the strategy's own score.
+    db.update(paperTrades)
+      .set({ goldRule: verdict.ruleId, exploratory: verdict.exploratory === true })
+      .where(eq(paperTrades.id, opened.paperTradeId))
+      .run();
   }
   if (opened.opened) {
-    log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} gold-cell copy from ${params.arm} — ${verdict.reason}`);
+    const tag = verdict.exploratory ? "exploration" : "gold-cell";
+    log.info(`elite mirror: opened $${ELITE_POSITION_SIZE.toFixed(2)} ${tag} copy from ${params.arm} — ${verdict.reason}`);
     if (telegramConfigured()) {
       const q = escapeHtml((params.marketQuestion ?? params.marketId).slice(0, 120));
       await sendTelegramMessage(
-        `🏆 <b>LA CREMA — copia en papel</b>\n${q}\n` +
-          `Celda de oro: ${escapeHtml(verdict.reason)} · vía ${params.arm} · entrada $${ELITE_POSITION_SIZE.toFixed(2)}\n` +
-          `(la matriz manda: solo copiamos los trades en su mejor franja/banda/categoría — libro aparte)`,
+        verdict.exploratory
+          ? `🎲 <b>LA CREMA — copia de EXPLORACIÓN</b>\n${q}\n` +
+              `${escapeHtml(verdict.reason)} · vía ${params.arm} · entrada $${ELITE_POSITION_SIZE.toFixed(2)}\n` +
+              `(no es oro confirmado: es una sospecha del libro sombra y estamos pagando por comprobarla con llenado real)`
+          : `🏆 <b>LA CREMA — copia en papel</b>\n${q}\n` +
+              `Celda de oro: ${escapeHtml(verdict.reason)} · vía ${params.arm} · entrada $${ELITE_POSITION_SIZE.toFixed(2)}\n` +
+              `(la matriz manda: solo copiamos los trades en su mejor franja/banda/categoría — libro aparte)`,
       );
     }
   }

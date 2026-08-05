@@ -11,6 +11,7 @@ import {
   MISSES_TO_RETIRE,
   type CellRow,
   type CellScan,
+  type WindowStats,
   type ScanTrade,
 } from "@/lib/goldEngine";
 
@@ -108,13 +109,19 @@ describe("cell ids", () => {
 // Hysteresis
 // ---------------------------------------------------------------------------
 
+/** A WindowStats with the bounds filled in the way a real scan would. */
+function win(n: number, roi: number, pnl: number): WindowStats {
+  return { n, roi, winRate: 0.6, pnl, lcb: roi / 2, strictLcb: roi / 4, avgHoldHours: 3, roiPerDay: roi * 8 };
+}
+
 function fakeScan(id: string, roi = 0.2): CellScan {
   const params = parseCellId(id)!;
   return {
     id,
     label: cellLabel(params),
     params,
-    windows: { all: { n: 50, roi, winRate: 0.6, pnl: 50 * 5 * roi } },
+    windows: { all: win(50, roi, 50 * 5 * roi) },
+    source: "real",
   };
 }
 
@@ -192,7 +199,9 @@ function activeCell(id: string, kind: "gold" | "trap", roi = 0.2): CellRow {
     status: "activa",
     hits: 2,
     misses: 0,
-    windows: { all: { n: 50, roi, winRate: 0.6, pnl: 10 } },
+    windows: { all: win(50, roi, 10) },
+    evidenceSource: "real",
+    realN: 50,
     firstSeenAt: NOW,
     activatedAt: NOW,
     retiredAt: null,

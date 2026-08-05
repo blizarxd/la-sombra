@@ -19,6 +19,7 @@ import {
   getTradeStats,
   getWalletPaperPerformance,
 } from "@/lib/queries";
+import { researchSummary } from "@/lib/research";
 import { summarizeMatrices } from "@/lib/slices";
 import {
   applyRuleChanges,
@@ -264,6 +265,11 @@ function gatherEvidence(db: Db) {
     // cells with enough sample are included. These are HYPOTHESES, never rules:
     // see the "Matrices" section of the system prompt.
     sliceMatrices: summarizeMatrices(getSliceMatrices(db)),
+    // 🔬 Three costs/signals the bot stored but never measured: what copying
+    // gives away at entry, how often independent wallets agree, and whether any
+    // exit rule beats holding. Same status as the matrices: HYPOTHESES to argue
+    // with, never rules — and each carries its own stated bias.
+    research: researchSummary(db),
     walletPaperPerformance: walletPerf.slice(0, 12),
     // Trading style of the tracked wallets: do they hold to resolution or
     // trade the odds (sell early)? Exits are copied in paper since v0005.
@@ -330,7 +336,14 @@ Matrices (sliceMatrices) — franja horaria, banda de entrada y día de la seman
 - Son HIPÓTESIS, no reglas. Estos son los MISMOS trades cortados de varias formas: con decenas de celdas, alguna se ve fantástica por puro azar. Nunca recomiendes nivel "bajo" (auto-aplicable) basándote SOLO en una celda de la matriz.
 - Solo te pasamos las celdas que superan el mínimo de muestra; aun así, una celda con n=6 no es evidencia fuerte. Pondera por ROI y por n, no por PnL bruto (los libros apuestan tamaños distintos).
 - Si ves un patrón que se repite en VARIOS libros a la vez (p.ej. la misma banda de entrada rinde en core y en live), eso sí es señal: propónlo como recomendación "medio" y pide forward-test antes de convertirlo en regla.
-- Si un patrón aparece en un solo libro y en una sola celda, dilo como observación a vigilar, con nivel "medio" como máximo y diciendo explícitamente que puede ser ruido.`;
+- Si un patrón aparece en un solo libro y en una sola celda, dilo como observación a vigilar, con nivel "medio" como máximo y diciendo explícitamente que puede ser ruido.
+- Cada celda trae ahora un "piso" (cota inferior corregida por cuántas celdas compitieron). El ROI es lo que la celda HIZO; el piso es lo que vale la pena APOSTAR. Un ROI alto con piso negativo es una hipótesis, no un hallazgo: dilo así. Cuando dos celdas compitan, prefiere SIEMPRE la de piso más alto aunque su ROI sea menor.
+- Mira también ROI/día, no solo ROI: un +8% que resuelve en 4h rota seis veces al día y le gana a un +20% que tarda cinco días. Si una veta buena es lenta, dilo.
+
+Investigación (research) — tres cosas que el bot guardaba y nunca medía:
+- drag: lo que ENTREGAMOS en la entrada por llenar peor que la billetera que copiamos. Si "roiCedido" de un grupo supera a su "roiRealizado", esa celda no tiene ventaja: tiene un peaje invisible. Es el primer sitio donde mirar cuando una veta rinde menos de lo que la matriz promete.
+- confluencia: billeteras DISTINTAS coincidiendo en el mismo resultado. Es la única señal aquí que no depende de confiar en una billetera concreta. Si hay racimos suficientes, propón medirla como filtro (nivel "medio", con forward-test) — todavía no es una regla.
+- salidas: qué habría pasado con reglas de salida sobre el camino de precios YA registrado. Trae dos sesgos declarados (marcas horarias ⇒ es un PISO; salida a precio medio ⇒ optimista en ~1 spread). Nunca recomiendes una política de salida a nivel "bajo": ninguna de estas cifras pagó spread de verdad.`;
 
 function buildUserPrompt(evidence: ReturnType<typeof gatherEvidence>): string {
   return (
