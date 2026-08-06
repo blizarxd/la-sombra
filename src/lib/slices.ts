@@ -164,6 +164,53 @@ export function priceBandKey(entryPrice: number): string | null {
 }
 
 /**
+ * 💲🔬 Finer entry bands — the cut that found the real edge.
+ *
+ * The coarse PRICE_BANDS hide two things that matter, discovered on 2026-08-06
+ * over the 1,549 settled Cuota copies:
+ *   · 55–59¢ was the single best slice (+13.7% ROI) and sat buried inside
+ *     "45–59¢ · moneda al aire", the band we had written off entirely.
+ *   · 70–74¢ was NEGATIVE (−10.1%) while living inside "60–74¢", the band we
+ *     had crowned.
+ *
+ * Both favourite slices (70–74 and 75–79) missed their break-even rate by the
+ * SAME −10.4pp, which is the classic favourite-longshot bias rather than noise —
+ * a mechanism, not just a number.
+ *
+ * Deliberately a SEPARATE dimension instead of a redefinition of PRICE_BANDS:
+ * the gold engine stamps cell ids like `cat-band:esports:p00` onto paper trades,
+ * so renumbering the bands would orphan every existing cell and erase the
+ * strategy's history. New view, same ledger.
+ *
+ * HONEST-STATS WARNING: slicing at 5¢ with n≈100 per bucket is exactly where
+ * noise lives. 55–59¢ clears a plain lower bound but NOT the multiplicity-
+ * corrected one — with nine buckets competing, it may just be the contest
+ * winner. Prefer the wider 55–69¢ read, which has the sample and the same
+ * economic story.
+ */
+export const FINE_BANDS: Axis[] = [
+  { key: "f00", label: "≤ 44¢ · tiro largo" },
+  { key: "f45", label: "45–54¢" },
+  { key: "f55", label: "55–59¢ ⭐" },
+  { key: "f60", label: "60–69¢ ⭐" },
+  { key: "f70", label: "70–74¢ ⚠" },
+  { key: "f75", label: "≥ 75¢ · favorito" },
+];
+
+export function fineBandKey(entryPrice: number): string | null {
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0 || entryPrice > 1) return null;
+  if (entryPrice < 0.45) return "f00";
+  if (entryPrice < 0.55) return "f45";
+  if (entryPrice < 0.6) return "f55";
+  if (entryPrice < 0.7) return "f60";
+  if (entryPrice < 0.75) return "f70";
+  return "f75";
+}
+
+/** The two slices the 2026-08-06 sweep says to actually enter in. */
+export const SWEET_BAND_KEYS = ["f55", "f60"] as const;
+
+/**
  * ⏳ How long the money stayed on the table. Collected for free from
  * openedAt→resolvedAt, and it asks a question no other dimension can: is
  * "esports ≤29¢" really about esports, or about ANY cheap market that resolves
@@ -213,6 +260,7 @@ export const DIMS = {
   } satisfies Dim,
   category: { axis: CATEGORY_AXIS, keyOf: (t: SettledTrade) => categorizeMarket(t.marketQuestion) } satisfies Dim,
   holdBand: { axis: HOLD_BANDS, keyOf: (t: SettledTrade) => holdBandKey(t) } satisfies Dim,
+  fineBand: { axis: FINE_BANDS, keyOf: (t: SettledTrade) => fineBandKey(t.entryPrice) } satisfies Dim,
 };
 
 // ---------------------------------------------------------------------------
@@ -413,6 +461,22 @@ export function buildAllMatrices(trades: SettledTrade[]): Matrix[] {
       minSample: 5,
       rowDim: DIMS.category,
       colDim: DIMS.hourBlock,
+    }),
+    buildMatrix(trades, {
+      id: "fineband-track",
+      title: "💲🔬 Banda FINA de entrada × brazo",
+      hint: "El corte que encontró la veta real. La banda ancha escondía dos cosas: 55–59¢ era el mejor tramo (y estaba enterrado en «moneda al aire»), y 70–74¢ pierde (y estaba dentro de la banda que habíamos coronado). Ojo: a 5¢ por tramo la muestra adelgaza — fíate más de 55–69¢ junto que de 55–59¢ solo.",
+      minSample: 8,
+      rowDim: DIMS.fineBand,
+      colDim: DIMS.track,
+    }),
+    buildMatrix(trades, {
+      id: "fineband-category",
+      title: "💲🔬 Banda FINA × categoría",
+      hint: "¿La banda dulce es la misma en deportes que en esports? Si cada categoría tiene la suya, un filtro de precio global sería un error.",
+      minSample: 8,
+      rowDim: DIMS.fineBand,
+      colDim: DIMS.category,
     }),
     buildMatrix(trades, {
       id: "hold-track",
