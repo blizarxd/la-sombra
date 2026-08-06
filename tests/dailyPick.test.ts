@@ -3,6 +3,8 @@ import {
   MAX_PICK_SPREAD,
   MIN_PICK_SCORE,
   choosePick,
+  choosePicks,
+  comboMath,
   isEligible,
   pickPnl,
   spreadOf,
@@ -195,5 +197,76 @@ describe("summarizeRecord — el marcador público", () => {
     );
     const r = summarizeRecord(rows);
     expect(r.roiFloor!).toBeLessThan(r.roi);
+  });
+});
+
+describe("choosePicks — la lista corta", () => {
+  const many = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      cand({ marketId: `0xm${i}`, cellId: `c${i}`, cellFloor: 0.1 - i * 0.01, cellRealN: 100 - i }),
+    );
+
+  it("publica hasta 4: el pick del día y 3 alternativas", () => {
+    expect(choosePicks(many(9))).toHaveLength(4);
+  });
+
+  it("el rango sigue el mismo criterio: piso de celda primero", () => {
+    const picks = choosePicks(many(6));
+    const floors = picks.map((p) => p.candidate.cellFloor!);
+    expect([...floors]).toEqual([...floors].sort((a, b) => b - a));
+  });
+
+  it("el primero se etiqueta PICK DEL DÍA y los demás como alternativa", () => {
+    const picks = choosePicks(many(4));
+    expect(picks[0].reasoning).toMatch(/PICK DEL DÍA/);
+    expect(picks[1].reasoning).toMatch(/alternativa #2/);
+    expect(picks[3].reasoning).toMatch(/alternativa #4/);
+  });
+
+  it("si solo hay 2 candidatos buenos, publica 2 — no rellena", () => {
+    expect(choosePicks([...many(2), cand({ marketId: "0xbad", copyScore: 5 })])).toHaveLength(2);
+  });
+
+  it("sin nada elegible devuelve lista vacía", () => {
+    expect(choosePicks([cand({ cellId: null })])).toEqual([]);
+  });
+
+  it("choosePick sigue devolviendo el primero de la lista", () => {
+    const all = choosePicks(many(5));
+    expect(choosePick(many(5))!.candidate.marketId).toBe(all[0].candidate.marketId);
+  });
+});
+
+describe("comboMath — la aritmética de juntar dos", () => {
+  it("el precio combinado es el producto, y el multiplicador su inverso", () => {
+    const m = comboMath({ entryPrice: 0.65, bestBid: 0.63 }, { entryPrice: 0.7, bestBid: 0.68 });
+    expect(m.combinedPrice).toBeCloseTo(0.455, 6);
+    expect(m.multiple).toBeCloseTo(1 / 0.455, 4);
+  });
+
+  it("🔒 EL NÚMERO CLAVE: el peaje se paga DOS veces y la EV sale negativa", () => {
+    const m = comboMath({ entryPrice: 0.65, bestBid: 0.61 }, { entryPrice: 0.7, bestBid: 0.66 });
+    expect(m.spreadDrag!).toBeGreaterThan(0);
+    expect(m.evPer10!).toBeLessThan(0); // priced off the mid, a fair parlay still loses the spread
+  });
+
+  it("más spread por pata ⇒ más arrastre y peor EV", () => {
+    const barato = comboMath({ entryPrice: 0.65, bestBid: 0.64 }, { entryPrice: 0.7, bestBid: 0.69 });
+    const caro = comboMath({ entryPrice: 0.65, bestBid: 0.59 }, { entryPrice: 0.7, bestBid: 0.64 });
+    expect(caro.spreadDrag!).toBeGreaterThan(barato.spreadDrag!);
+    expect(caro.evPer10!).toBeLessThan(barato.evPer10!);
+  });
+
+  it("acertar las dos es MENOS probable que cualquiera por separado", () => {
+    const m = comboMath({ entryPrice: 0.65, bestBid: 0.63 }, { entryPrice: 0.7, bestBid: 0.68 });
+    expect(m.bothLandRate).toBeLessThan(0.65);
+    expect(m.bothLandRate).toBeLessThan(0.7);
+  });
+
+  it("sin bestBid no inventa el coste del spread", () => {
+    const m = comboMath({ entryPrice: 0.65, bestBid: null }, { entryPrice: 0.7, bestBid: 0.68 });
+    expect(m.spreadCents).toBeNull();
+    expect(m.evPer10).toBeNull();
+    expect(m.combinedPrice).toBeCloseTo(0.455, 6); // the price still computes
   });
 });

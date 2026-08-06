@@ -470,6 +470,13 @@ export const dailyPicks = sqliteTable(
   {
     id: text("id").primaryKey(),
     pickDate: text("pick_date").notNull(), // YYYY-MM-DD in APP_TZ
+    /**
+     * 1 = the pick of the day (the ONLY one that counts toward the official
+     * record). 2-4 = vetted alternates, published so a parlay can be built by
+     * hand. Scoring all four together would turn the record into "at least one
+     * of our picks won", which is precisely how a tipster record is laundered.
+     */
+    rank: integer("rank").notNull().default(1),
     publishedAt: integer("published_at", { mode: "timestamp_ms" }).notNull(),
     marketId: text("market_id").notNull(),
     tokenId: text("token_id"),
@@ -494,7 +501,10 @@ export const dailyPicks = sqliteTable(
     pnlPer10: real("pnl_per10"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (t) => [uniqueIndex("daily_picks_date_unique").on(t.pickDate), index("daily_picks_status_idx").on(t.status)],
+  (t) => [
+    uniqueIndex("daily_picks_date_rank_unique").on(t.pickDate, t.rank),
+    index("daily_picks_status_idx").on(t.status),
+  ],
 );
 
 export const comboLegResolutions = sqliteTable("combo_leg_resolutions", {

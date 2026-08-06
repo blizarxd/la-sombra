@@ -1,5 +1,5 @@
 import { getDb } from "@/db/client";
-import { MAX_PICK_SPREAD, MIN_PICK_SCORE } from "@/lib/dailyPick";
+import { MAX_PICK_SPREAD, MIN_PICK_SCORE, comboMath } from "@/lib/dailyPick";
 import { dayKeyTz, money, when } from "@/lib/format";
 import { getDailyPicks } from "@/lib/queries";
 import { Card, PnlText, Stat, Table, Td, Th } from "../components/ui";
@@ -15,9 +15,17 @@ const STATUS_STYLE: Record<string, { label: string; className: string }> = {
 
 export default function PickPage() {
   const db = getDb();
-  const { picks, record } = getDailyPicks(db);
+  const { picks, record, alternatesRecord } = getDailyPicks(db);
   const today = dayKeyTz(new Date());
-  const todays = picks.find((p) => p.pickDate === today) ?? null;
+  const todaysAll = picks.filter((p) => p.pickDate === today);
+  const todays = todaysAll.find((p) => p.rank === 1) ?? null;
+  const alternates = todaysAll.filter((p) => p.rank !== 1);
+
+  // Every 2-leg combination of today's shortlist, with the cost made explicit
+  // at the exact moment someone is deciding whether to staple two together.
+  const pairs = todaysAll.flatMap((a, i) =>
+    todaysAll.slice(i + 1).map((b) => ({ a, b, m: comboMath(a, b) })),
+  );
 
   // The comparison that decides whether this is a business: you must win as
   // often as the price implies just to stand still.
@@ -57,17 +65,50 @@ export default function PickPage() {
         <Stat label="Peor racha" value={`${record.worstStreak} seguidos`} hint={`${record.open} abiertos · ${record.total} picks en total`} />
       </div>
 
-      <Card title="📌 El pick de hoy">
+      <Card title="📌 Hoy">
         {todays ? (
-          <div className="space-y-2">
-            <p className="text-base font-medium text-white">{todays.marketQuestion ?? todays.marketId}</p>
-            <p className="text-sm text-mist">
-              Lado <b className="text-white">{todays.outcome ?? "?"}</b> · entrada{" "}
-              <b className="text-white">{Math.round(todays.entryPrice * 100)}¢</b>
-              {todays.spread !== null ? ` · spread pagado ${(todays.spread * 100).toFixed(1)}¢` : ""} · publicado{" "}
-              {when(todays.publishedAt)}
-            </p>
-            <p className="text-[11px] leading-4 text-mist">{todays.reasoning}</p>
+          <div className="space-y-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-profit">🥇 Pick del día</p>
+              <p className="text-base font-medium text-white">{todays.marketQuestion ?? todays.marketId}</p>
+              <p className="text-sm text-mist">
+                Lado <b className="text-white">{todays.outcome ?? "?"}</b> · entrada{" "}
+                <b className="text-white">{Math.round(todays.entryPrice * 100)}¢</b>
+                {todays.spread !== null ? ` · spread pagado ${(todays.spread * 100).toFixed(1)}¢` : ""} · publicado{" "}
+                {when(todays.publishedAt)}
+              </p>
+              <p className="mt-1 text-[11px] leading-4 text-mist">{todays.reasoning}</p>
+            </div>
+
+            {alternates.length > 0 ? (
+              <div>
+                <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-mist">
+                  Alternativas ({alternates.length}) — mismo estándar, no cuentan para el historial
+                </p>
+                <Table>
+                  <thead>
+                    <tr>
+                      <Th>#</Th>
+                      <Th>Mercado</Th>
+                      <Th>Lado</Th>
+                      <Th className="text-right">Entrada</Th>
+                      <Th>Celda</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alternates.map((p) => (
+                      <tr key={p.id} className="border-t border-edge">
+                        <Td className="text-mist">{p.rank}</Td>
+                        <Td className="max-w-[20rem] truncate text-white">{p.marketQuestion ?? p.marketId}</Td>
+                        <Td className="text-mist">{p.outcome ?? "—"}</Td>
+                        <Td className="text-right tabular-nums text-mist">{Math.round(p.entryPrice * 100)}¢</Td>
+                        <Td className="text-mist">{p.cellLabel ?? "—"}</Td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </Table>
+              </div>
+            ) : null}
           </div>
         ) : (
           <p className="text-sm text-mist">
@@ -77,6 +118,57 @@ export default function PickPage() {
           </p>
         )}
       </Card>
+
+      {pairs.length > 0 ? (
+        <Card title="🧮 Si quieres combinar dos — la cuenta antes de hacerlo">
+          <div className="rounded border border-edge bg-black/20 p-2 text-[11px] leading-4 text-mist">
+            <b className="text-white">Ojo, esto primero:</b> comprar dos picks por separado <b>NO</b> es una combinada.
+            Dos apuestas sueltas pagan cada una por su lado (eso es diversificar, y baja la varianza). Una combinada de
+            verdad exige que <b className="text-white">acierten las dos</b> y paga multiplicado — es la apuesta
+            contraria. Para armarla necesitas el creador de combos de Polymarket, no dos compras sueltas.
+          </div>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Combinación</Th>
+                <Th className="text-right">Precio</Th>
+                <Th className="text-right">Paga</Th>
+                <Th className="text-right">Aciertan las 2</Th>
+                <Th className="text-right">Peaje doble</Th>
+                <Th className="text-right">EV /$10</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {pairs.map(({ a, b, m }) => (
+                <tr key={`${a.id}-${b.id}`} className="border-t border-edge">
+                  <Td className="text-white">
+                    #{a.rank} + #{b.rank}
+                    <span className="ml-1 text-mist">
+                      ({Math.round(a.entryPrice * 100)}¢ × {Math.round(b.entryPrice * 100)}¢)
+                    </span>
+                  </Td>
+                  <Td className="text-right tabular-nums text-white">{(m.combinedPrice * 100).toFixed(0)}¢</Td>
+                  <Td className="text-right tabular-nums text-mist">{m.multiple.toFixed(2)}x</Td>
+                  <Td className="text-right tabular-nums text-mist">{(m.bothLandRate * 100).toFixed(0)}%</Td>
+                  <Td className="text-right tabular-nums text-mist">
+                    {m.spreadDrag === null ? "—" : `${(m.spreadDrag * 100).toFixed(1)}%`}
+                  </Td>
+                  <Td className="text-right tabular-nums">
+                    {m.evPer10 === null ? <span className="text-mist">—</span> : <PnlText value={m.evPer10} />}
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+          <p className="mt-2 text-[11px] leading-4 text-mist">
+            <b className="text-white">Cómo leer la última columna:</b> es lo que esperas ganar (o perder) por cada $10
+            en una combinada de verdad, valorando cada pata a su precio medio. Sale negativa siempre por una razón
+            estructural: <b className="text-white">cada pata paga su spread y los dos se multiplican</b>. Por eso
+            existen las combinadas — no porque sean buenas, sino porque el premio grande se vende solo. Con estos
+            números necesitas que las dos patas tengan ventaja REAL solo para volver a cero.
+          </p>
+        </Card>
+      ) : null}
 
       <Card title="📊 Cómo va — el marcador honesto">
         {record.settled === 0 ? (

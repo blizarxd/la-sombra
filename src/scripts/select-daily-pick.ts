@@ -4,7 +4,7 @@ import { dailyPicks, decisionJournal, observedTrades } from "@/db/schema";
 import { fetchOrderBook } from "@/lib/adapters";
 import { categorizeMarket } from "@/lib/category";
 import { loadActiveCells } from "@/lib/cremaCells";
-import { choosePick, type PickCandidate } from "@/lib/dailyPick";
+import { choosePicks, type PickCandidate } from "@/lib/dailyPick";
 import { dayKeyTz, hourInAppTz } from "@/lib/format";
 import { verdictFromCells } from "@/lib/goldEngine";
 import { newId } from "@/lib/ids";
@@ -122,52 +122,65 @@ runScript("pick:select", async (db) => {
     if (candidates.length >= 12) break; // enough to choose from; each costs an API call
   }
 
-  const choice = choosePick(candidates);
-  if (!choice) {
+  const choices = choosePicks(candidates);
+  if (choices.length === 0) {
     log.info(
       `[pick:select] ${today} — ${candidates.length} candidatos pero ninguno supera el estándar; HOY NO HAY PICK`,
     );
     return;
   }
 
-  const c = choice.candidate;
-  const spread = c.bestBid === null ? null : Math.round((c.entryPrice - c.bestBid) * 10000) / 10000;
-  db.insert(dailyPicks)
-    .values({
-      id: newId(),
-      pickDate: today,
-      publishedAt: now,
-      marketId: c.marketId,
-      tokenId: c.tokenId,
-      marketQuestion: c.marketQuestion,
-      outcome: c.outcome,
-      entryPrice: c.entryPrice,
-      bestBid: c.bestBid,
-      spread,
-      cellId: c.cellId,
-      cellLabel: c.cellLabel,
-      copyScore: c.copyScore,
-      confidence: c.confidence,
-      walletAddress: c.walletAddress,
-      category: c.category,
-      reasoning: choice.reasoning,
-      status: "abierto",
-      createdAt: now,
-    })
-    // Belt and braces: if two ticks race, the first write wins and stands.
-    .onConflictDoNothing()
-    .run();
+  for (const [i, choice] of choices.entries()) {
+    const c = choice.candidate;
+    const spread = c.bestBid === null ? null : Math.round((c.entryPrice - c.bestBid) * 10000) / 10000;
+    db.insert(dailyPicks)
+      .values({
+        id: newId(),
+        pickDate: today,
+        rank: i + 1, // 1 = pick of the day; 2-4 = alternates for building by hand
+        publishedAt: now,
+        marketId: c.marketId,
+        tokenId: c.tokenId,
+        marketQuestion: c.marketQuestion,
+        outcome: c.outcome,
+        entryPrice: c.entryPrice,
+        bestBid: c.bestBid,
+        spread,
+        cellId: c.cellId,
+        cellLabel: c.cellLabel,
+        copyScore: c.copyScore,
+        confidence: c.confidence,
+        walletAddress: c.walletAddress,
+        category: c.category,
+        reasoning: choice.reasoning,
+        status: "abierto",
+        createdAt: now,
+      })
+      // Belt and braces: if two ticks race, the first write wins and stands.
+      .onConflictDoNothing()
+      .run();
+  }
 
-  log.info(`[pick:select] ${today} → ${c.marketQuestion ?? c.marketId} @ ${Math.round(c.entryPrice * 100)}¢ · ${choice.reasoning}`);
+  const main = choices[0].candidate;
+  log.info(
+    `[pick:select] ${today} → ${choices.length} publicados · #1 ${main.marketQuestion ?? main.marketId} @ ${Math.round(main.entryPrice * 100)}¢`,
+  );
 
   if (telegramConfigured()) {
+    const lines = choices
+      .map((ch, i) => {
+        const c = ch.candidate;
+        return (
+          `${i === 0 ? "🥇" : `${i + 1}️⃣`} ${escapeHtml((c.marketQuestion ?? c.marketId).slice(0, 90))}\n` +
+          `    <b>${escapeHtml(c.outcome ?? "?")}</b> a <b>${Math.round(c.entryPrice * 100)}¢</b>`
+        );
+      })
+      .join("\n");
     await sendTelegramMessage(
-      `🎯 <b>PICK DEL DÍA</b> · ${today}\n` +
-        `${escapeHtml((c.marketQuestion ?? c.marketId).slice(0, 140))}\n` +
-        `Lado: <b>${escapeHtml(c.outcome ?? "?")}</b> · entrada <b>${Math.round(c.entryPrice * 100)}¢</b>` +
-        `${spread === null ? "" : ` (spread ${(spread * 100).toFixed(1)}¢)`}\n` +
-        `${escapeHtml(choice.reasoning)}\n` +
-        `<i>Registro público en papel. Congelado antes de saber el resultado. Esto NO es consejo financiero.</i>`,
+      `🎯 <b>PICK DEL DÍA</b> · ${today}\n${lines}\n\n` +
+        `${escapeHtml(choices[0].reasoning)}\n` +
+        `<i>Solo el #1 cuenta para el historial. Los demás son alternativas.</i>\n` +
+        `<i>Registro público en papel, congelado antes de saber el resultado. NO es consejo financiero.</i>`,
     );
   }
 });

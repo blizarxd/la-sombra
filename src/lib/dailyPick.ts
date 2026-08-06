@@ -49,6 +49,9 @@ export const MIN_PICK_SCORE = 60;
 /** Widest spread we will pay on a published pick, in cents. */
 export const MAX_PICK_SPREAD = 0.06;
 
+/** How many picks get published: 1 principal + 3 vetted alternates. */
+export const SHORTLIST_SIZE = 4;
+
 export type PickChoice = {
   candidate: PickCandidate;
   reasoning: string;
@@ -80,9 +83,9 @@ export function isEligible(c: PickCandidate): boolean {
  * much the underlying pattern has actually earned the right to be believed. The
  * second question is the one that survives contact with reality.
  */
-export function choosePick(candidates: PickCandidate[]): PickChoice | null {
+export function choosePicks(candidates: PickCandidate[], limit = SHORTLIST_SIZE): PickChoice[] {
   const eligible = candidates.filter(isEligible);
-  if (eligible.length === 0) return null;
+  if (eligible.length === 0) return [];
 
   const ranked = [...eligible].sort(
     (a, b) =>
@@ -91,19 +94,91 @@ export function choosePick(candidates: PickCandidate[]): PickChoice | null {
       b.copyScore - a.copyScore ||
       a.marketId.localeCompare(b.marketId), // deterministic tie-break
   );
-  const best = ranked[0];
 
-  const floorTxt =
-    best.cellFloor === null ? "sin piso calculable todavía" : `piso ${(best.cellFloor * 100).toFixed(1)}%`;
-  const s = spreadOf(best);
-  const reasoning =
-    `Celda de oro: ${best.cellLabel ?? best.cellId} (${floorTxt}, ${best.cellRealN} copias reales detrás). ` +
-    `Puntaje de la señal ${best.copyScore.toFixed(0)}/100. ` +
-    `Entrada a ${Math.round(best.entryPrice * 100)}¢${s === null ? "" : ` · spread ${(s * 100).toFixed(1)}¢ pagado`}. ` +
-    `Elegido entre ${eligible.length} candidato${eligible.length === 1 ? "" : "s"} del día.`;
-
-  return { candidate: best, reasoning };
+  return ranked.slice(0, limit).map((c, i) => {
+    const floorTxt = c.cellFloor === null ? "sin piso calculable todavía" : `piso ${(c.cellFloor * 100).toFixed(1)}%`;
+    const s = spreadOf(c);
+    const role = i === 0 ? "PICK DEL DÍA" : `alternativa #${i + 1}`;
+    return {
+      candidate: c,
+      reasoning:
+        `${role}. Celda de oro: ${c.cellLabel ?? c.cellId} (${floorTxt}, ${c.cellRealN} copias reales detrás). ` +
+        `Puntaje de la señal ${c.copyScore.toFixed(0)}/100. ` +
+        `Entrada a ${Math.round(c.entryPrice * 100)}¢${s === null ? "" : ` · spread ${(s * 100).toFixed(1)}¢ pagado`}. ` +
+        `Elegido entre ${eligible.length} candidato${eligible.length === 1 ? "" : "s"} del día.`,
+    };
+  });
 }
+
+/** Back-compat single-pick helper. */
+export function choosePick(candidates: PickCandidate[]): PickChoice | null {
+  return choosePicks(candidates, 1)[0] ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Combining two picks by hand
+// ---------------------------------------------------------------------------
+
+export type ComboMath = {
+  /** Fair combined price if the two events are independent: p1 × p2. */
+  combinedPrice: number;
+  /** Payout multiple on a true parlay at that price. */
+  multiple: number;
+  /**
+   * Probability both land, using each leg's price as its implied probability.
+   * Same number as combinedPrice — which is the point: a parlay priced fairly
+   * has ZERO edge, and every cent of spread comes straight off the top.
+   */
+  bothLandRate: number;
+  /** Combined spread paid across both legs, in cents. */
+  spreadCents: number | null;
+  /**
+   * Share of the combined price that is pure spread. This is the number that
+   * decides it: two legs means paying the toll twice, compounded.
+   */
+  spreadDrag: number | null;
+  /** Expected value of $10 on a true parlay, priced off the mid. */
+  evPer10: number | null;
+};
+
+/**
+ * The honest arithmetic of stapling two picks together.
+ *
+ * Two separate singles are NOT a parlay — they pay out independently, which is
+ * diversification (lower variance). A real parlay needs BOTH to land and pays
+ * the multiplied odds. The two are opposite bets and the page must not blur them.
+ */
+export function comboMath(a: PickCandidate | PickRow2, b: PickCandidate | PickRow2): ComboMath {
+  const p1 = a.entryPrice;
+  const p2 = b.entryPrice;
+  const combined = p1 * p2;
+  const s1 = a.bestBid === null || a.bestBid === undefined ? null : p1 - a.bestBid;
+  const s2 = b.bestBid === null || b.bestBid === undefined ? null : p2 - b.bestBid;
+
+  let spreadCents: number | null = null;
+  let spreadDrag: number | null = null;
+  let evPer10: number | null = null;
+  if (s1 !== null && s2 !== null) {
+    // What the same parlay would cost priced at the mid of each leg.
+    const fair = (p1 - s1 / 2) * (p2 - s2 / 2);
+    spreadCents = Math.round((combined - fair) * 10000) / 100;
+    spreadDrag = combined > 0 ? (combined - fair) / combined : null;
+    // Buy at `combined`, true chance `fair`: the gap is the expected loss.
+    evPer10 = Math.round(((fair / combined) * 10 - 10) * 100) / 100;
+  }
+
+  return {
+    combinedPrice: combined,
+    multiple: combined > 0 ? 1 / combined : 0,
+    bothLandRate: combined,
+    spreadCents,
+    spreadDrag,
+    evPer10,
+  };
+}
+
+/** Minimal shape a stored pick exposes for combo math. */
+export type PickRow2 = { entryPrice: number; bestBid?: number | null };
 
 /** PnL of a $10 unit at `entryPrice` given the final outcome. */
 export function pickPnl(entryPrice: number, won: boolean, unit = 10): number | null {

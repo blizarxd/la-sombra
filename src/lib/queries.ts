@@ -735,10 +735,20 @@ export function getCremaCellsOverview(db: Db) {
  */
 export function getDailyPicks(db: Db) {
   try {
-    const picks = db.select().from(dailyPicks).orderBy(desc(dailyPicks.pickDate)).all();
-    return { picks, record: summarizeRecord(picks) };
+    const picks = db
+      .select()
+      .from(dailyPicks)
+      .orderBy(desc(dailyPicks.pickDate), dailyPicks.rank)
+      .all();
+    // The official record is rank 1 ONLY. Scoring all four together would turn
+    // it into "at least one of our picks won" — the oldest tipster trick there is.
+    return {
+      picks,
+      record: summarizeRecord(picks.filter((p) => p.rank === 1)),
+      alternatesRecord: summarizeRecord(picks.filter((p) => p.rank !== 1)),
+    };
   } catch {
-    return { picks: [], record: summarizeRecord([]) };
+    return { picks: [], record: summarizeRecord([]), alternatesRecord: summarizeRecord([]) };
   }
 }
 
