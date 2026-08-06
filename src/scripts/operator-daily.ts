@@ -68,6 +68,8 @@ const DAILY_STEPS: Array<{ file: string; args?: string[] }> = [
   { file: "update-rules-live.ts" }, // self-improve LIVE on live evidence
   { file: "update-rules-trade.ts" }, // self-improve TRADE book
   { file: "update-rules-crypto.ts" }, // self-improve CRYPTO book
+  { file: "resolve-daily-picks.ts" }, // 🎯 settle yesterday's pick BEFORE choosing today's
+  { file: "select-daily-pick.ts" }, // 🎯 freeze ONE pick, before the outcome is known
   { file: "ai-analyst.ts" }, // 🧠 the cut: reasoning + bounded auto-tuning
   { file: "report-daily.ts" }, // EOD report (+ Telegram if configured)
 ];

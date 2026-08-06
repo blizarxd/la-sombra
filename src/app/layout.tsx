@@ -17,6 +17,7 @@ const nav = [
   { href: "/cripto", label: "₿ Cripto" },
   { href: "/combos", label: "🧩 Combos" },
   { href: "/elite", label: "🏆 La Crema" },
+  { href: "/pick", label: "🎯 Pick del día" },
   { href: "/cazador", label: "🎯 Cazador" },
   { href: "/journal", label: "Diario de decisiones" },
   { href: "/performance", label: "Rendimiento" },

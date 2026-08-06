@@ -456,6 +456,47 @@ export const cremaEvolution = sqliteTable(
   (t) => [index("crema_evolution_at_idx").on(t.at)],
 );
 
+// ---------------------------------------------------------------------------
+// 🎯 Daily pick — the public, falsifiable track record
+// ---------------------------------------------------------------------------
+/**
+ * ONE pick per day, frozen at publication with the price you would actually
+ * pay. Immutable: the unique index on pickDate makes re-picking impossible,
+ * which is the single mechanism that separates a real record from a laundered
+ * one. Still paper — this records a claim, it never places an order.
+ */
+export const dailyPicks = sqliteTable(
+  "daily_picks",
+  {
+    id: text("id").primaryKey(),
+    pickDate: text("pick_date").notNull(), // YYYY-MM-DD in APP_TZ
+    publishedAt: integer("published_at", { mode: "timestamp_ms" }).notNull(),
+    marketId: text("market_id").notNull(),
+    tokenId: text("token_id"),
+    marketQuestion: text("market_question"),
+    outcome: text("outcome"),
+    /** Best ASK at publication — what it would cost, spread included. */
+    entryPrice: real("entry_price").notNull(),
+    bestBid: real("best_bid"),
+    spread: real("spread"),
+    cellId: text("cell_id"),
+    cellLabel: text("cell_label"),
+    copyScore: real("copy_score"),
+    confidence: real("confidence"),
+    walletAddress: text("wallet_address"),
+    category: text("category"),
+    reasoning: text("reasoning").notNull(),
+    status: text("status", { enum: ["abierto", "ganado", "perdido", "anulado"] })
+      .notNull()
+      .default("abierto"),
+    resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
+    /** Result on a fixed $10 unit, so every day is comparable. */
+    pnlPer10: real("pnl_per10"),
+    createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (t) => [uniqueIndex("daily_picks_date_unique").on(t.pickDate), index("daily_picks_status_idx").on(t.status)],
+);
+
 export const comboLegResolutions = sqliteTable("combo_leg_resolutions", {
   /** The leg's exact question text, lowercased — that is how combo titles key it. */
   question: text("question").primaryKey(),

@@ -3,6 +3,7 @@ import type { Db } from "@/db/client";
 import {
   aiAnalyses,
   cremaEvolution,
+  dailyPicks,
   dailyReports,
   decisionJournal,
   eliteRoster,
@@ -17,6 +18,7 @@ import {
   walletProfiles,
 } from "@/db/schema";
 import { canonicalGoldRule, loadAllCells } from "./cremaCells";
+import { summarizeRecord } from "./dailyPick";
 import {
   computeBenchmarks,
   computeSkipAutopsy,
@@ -724,6 +726,19 @@ export function getCremaCellsOverview(db: Db) {
       exploration: { n: 0, pnl: 0, roi: null },
       events: [],
     };
+  }
+}
+
+/**
+ * 🎯 The daily pick record. Returns EVERY pick ever published, losers included —
+ * the whole value of the page is that nothing can be dropped after the fact.
+ */
+export function getDailyPicks(db: Db) {
+  try {
+    const picks = db.select().from(dailyPicks).orderBy(desc(dailyPicks.pickDate)).all();
+    return { picks, record: summarizeRecord(picks) };
+  } catch {
+    return { picks: [], record: summarizeRecord([]) };
   }
 }
 
