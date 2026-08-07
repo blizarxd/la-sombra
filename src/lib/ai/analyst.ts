@@ -10,6 +10,7 @@ import {
   getComboBookStats,
   getComboScanStatus,
   getCryptoBookStats,
+  getCremaCellsOverview,
   getEliteBookStats,
   getInPlayPaperPerformance,
   getLiveStats,
@@ -247,19 +248,37 @@ function gatherEvidence(db: Db) {
       // tweaks — the bottleneck is the leaderboard scrape, not the rules.
       leaderboardScrapeOk: comboScan?.ok ?? null,
     },
-    elite: {
-      // No rules of its own — it mirrors core/live/trade/crypto's OWN
-      // already-approved copies, filtered to that arm's weekly top-10. If
-      // it underperforms its source arms, that's a finding about whether
-      // wallet curation alone beats per-signal filtering, not a rule to tune.
-      totalPnl: elite.totalPnl,
-      realizedPnl: elite.realizedPnl,
-      winRate: elite.winRate,
-      settledCount: elite.settledCount,
-      openCount: elite.openCount,
-      rosterSize: elite.rosterSize,
-      lastRefreshedAt: elite.lastRefreshedAt,
-    },
+    elite: (() => {
+      // No rules of its own — it mirrors an arm's ALREADY-approved copy only
+      // when it lands in an active gold cell. `rosterSize`/`lastRefreshedAt`
+      // used to live here and were fed for weeks after the roster was retired
+      // (2026-07-18); the analyst reasonably read rosterSize=0 as a broken job
+      // and spent its top-priority slot on a phantom bug two cuts running. The
+      // cure is to show the state that actually drives the book.
+      const cells = getCremaCellsOverview(db);
+      const brief = (c: { id: string; label: string; realN: number; windows: Record<string, { roi: number; n: number; strictLcb: number | null }> | null }) => ({
+        celda: c.label,
+        id: c.id,
+        copiasReales: c.realN,
+        roi: c.windows?.all ? `${(c.windows.all.roi * 100).toFixed(1)}%` : null,
+        piso: c.windows?.all?.strictLcb == null ? null : `${(c.windows.all.strictLcb * 100).toFixed(1)}%`,
+        n: c.windows?.all?.n ?? null,
+      });
+      return {
+        totalPnl: elite.totalPnl,
+        realizedPnl: elite.realizedPnl,
+        winRate: elite.winRate,
+        settledCount: elite.settledCount,
+        openCount: elite.openCount,
+        rosterRetiradoNota:
+          "El roster top-10 se retiró el 2026-07-18 tras fracasar. La Crema es dirigida por celdas de oro. No hay nada que arreglar aquí.",
+        celdasOroActivas: cells.activeGold.map(brief),
+        celdasTrampaActivas: cells.activeTraps.map(brief),
+        candidatas: cells.candidatas.length,
+        sospechasDelLibroSombra: cells.sospechas.map(brief),
+        exploracion: cells.exploration,
+      };
+    })(),
     ledgerComparison: ledgers,
     // The slice matrices (hour block / entry band / weekday, per book). Only
     // cells with enough sample are included. These are HYPOTHESES, never rules:
@@ -313,7 +332,7 @@ const SYSTEM_PROMPT = `Eres el analista experto de "La Sombra", un bot de invest
 - Experimento en vivo (live): libro separado que copia apuestas in-play (con el juego en marcha), tamaño fijo, sin guardia de deriva — mide si copiar en vivo es rentable pese a la latencia.
 - ₿ Libro cripto: cuarto libro, copia BUYs de billeteras minadas de mercados cripto (BTC/ETH Up-or-Down, ~15min) dentro de una banda de precio calculada 55–75¢. Elegibilidad: holder probado O trader de cuota probado (fix 2026-07-14 — antes solo holder-score, que rechazaba casi todos los scalpers rápidos). Se automejora aparte (update-rules-crypto.ts, nuevo 2026-07-14).
 - 🧩 Libro combo: quinto libro, copia combos (parlays, tratados como un solo pick) de billeteras del leaderboard "Combo Cup" con cashflow combo positivo a 30 días. Sin libro de órdenes público (RFQ) — la pérdida se detecta por heurística de 7 días sin cobro. leaderboardScrapeOk en la evidencia dice si el scraper del leaderboard está funcionando en este servidor; si es false, el libro no puede poblarse aunque las reglas estén bien — no recomiendes tocar la banda de precio en ese caso.
-- 🏆 Libro elite ("la crema"): sexto libro, SIN reglas de entrada propias. Cada día se recalculan los 10 mejores por PnL realizado en papel de la última semana, por brazo (core/live/trade/crypto) — solo billeteras en verde entran, nunca la "menos mala". Cuando un brazo YA copia una jugada de una billetera que está en su top-10 semanal, elite espeja esa misma copia. Es un experimento: ¿la curación de billeteras por sí sola rinde mejor que el filtrado caso-por-caso? Si elite no supera a sus brazos de origen, esa es la respuesta.
+- 🏆 Libro elite ("la crema"): sexto libro, SIN reglas de entrada propias. IMPORTANTE — el diseño de top-10 billeteras se RETIRÓ el 2026-07-18 tras fracasar (-134, 26% aciertos): el roster ya no existe y \`rosterSize=0\` es el estado correcto, NO un fallo. No recomiendes arreglarlo. Desde entonces La Crema es dirigida por CELDAS DE ORO de la matriz (cremaCells en la evidencia): cuando un brazo YA copia una jugada, elite la espeja solo si cae en una celda de oro ACTIVA y ninguna celda TRAMPA la veta. Las celdas se re-derivan cada corte con histéresis pre-registrada (2 escaneos seguidos sobreviviendo para activarse, 2 fallando para podarse) y se ordenan por su PISO corregido, no por ROI. Hay además un nivel "sospecha": celdas nominadas por el libro sombra (contrafactuales de señales que descartamos) que NUNCA operan solas — solo las alcanza el presupuesto de exploración (12% de las copias, dirigido a la celda MENOS conocida) para comprarles llenado real. Las copias exploratorias se contabilizan aparte: son el precio de aprender, no rendimiento de la estrategia.
 - Todas las estrategias con reglas propias tienen su set versionado que se automejora por separado.
 
 CONTABILIDAD (importante para no marcar falsas discrepancias): totalPaperPnl/totalPnl = realizado + NO realizado (posiciones abiertas marcadas al bid, que se mueven). El benchmark botFiltered es SOLO realizado. Para comparar el libro contra el benchmark usa realizedPnl (no totalPaperPnl). Que totalPaperPnl y el benchmark difieran es NORMAL (uno incluye abiertas), no un error contable.
@@ -328,7 +347,7 @@ Reglas para recomendaciones:
 - Opina de LOS 6 LIBROS cuando haya evidencia (core, live, trade, crypto, combo, elite) — no te limites a core/live. Usa el campo scope para etiquetar cada recomendación con el libro correcto.
 - Da recomendaciones POR NIVEL: "bajo" = ajuste pequeño y seguro respaldado por evidencia; "medio" = cambio con más impacto que conviene revisar; "alto" = cambio estructural o de criterio que requiere decisión humana.
 - AUTO-APLICAR (rule_key + proposed_value) SOLO es posible en nivel "bajo" Y scope "core" o "live" Y usando una clave en tunableKeys — cualquier otra combinación (incluida trade/crypto/combo, o core/live con una clave fuera de tunableKeys) queda como recomendación para el humano, aunque la marques "bajo". Esto es a propósito: trade y crypto ya tienen su propio afinador determinista dueño de esas palancas (evita la colisión que pasó el 2026-07-14 con maxEntryPrice en core). Respeta ruleBounds. Nunca propongas saltos grandes.
-- elite no tiene rule_key posible (no tiene reglas propias) — tus recomendaciones sobre elite son siempre sobre la política del roster (tamaño, ventana de 7 días, qué brazos alimentan) o si el experimento está funcionando, nunca un ajuste de regla.
+- elite no tiene rule_key posible (no tiene reglas propias) — tus recomendaciones sobre elite son sobre la POLÍTICA DE CELDAS (el estándar de supervivencia, el cupo de celdas activas, el tamaño del presupuesto de exploración, qué brazos alimentan el escaneo) o sobre si el experimento está funcionando, nunca un ajuste de regla. NUNCA recomiendes arreglar el roster: está retirado a propósito desde el 2026-07-18.
 - Para "medio"/"alto" no hace falta rule_key: describe la recomendación para que el humano decida.
 - Todo en español. No inventes datos que no estén en la evidencia.
 
