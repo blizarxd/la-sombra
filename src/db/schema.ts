@@ -175,6 +175,13 @@ export const decisionJournal = sqliteTable(
     // Skip autopsy: the PRIMARY gate that blocked this signal (null if copied).
     // Lets us measure which filter is leaking profitable signals vs blind copy.
     blockedGate: text("blocked_gate"),
+    /**
+     * 🔗 How many OTHER distinct tracked wallets had already bought this same
+     * market+outcome inside the window when this signal was scored. Independent
+     * confirmation is the one signal here that does not require trusting any
+     * single wallet. Null on rows predating the instrumentation.
+     */
+    confluenceCount: integer("confluence_count"),
     ruleSetVersion: integer("rule_set_version"),
     createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -231,6 +238,8 @@ export const paperTrades = sqliteTable(
      * learning never gets read as the strategy's own performance.
      */
     exploratory: integer("exploratory", { mode: "boolean" }).notNull().default(false),
+    /** 🔗 Confluence at entry — copied from the journal so matrices can slice it. */
+    confluenceCount: integer("confluence_count"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),

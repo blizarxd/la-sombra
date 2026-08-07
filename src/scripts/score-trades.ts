@@ -1,9 +1,10 @@
-import { and, desc, eq, lt } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import { decisionJournal, marketSnapshots, observedTrades, paperTrades, walletProfiles } from "@/db/schema";
 import { fetchMarketsByConditionIds, fetchOrderBook, isInPlayTrade } from "@/lib/adapters";
 import type { MarketInfo, OrderBook } from "@/lib/adapters/types";
 import { categorizeMarket } from "@/lib/category";
+import { CONFLUENCE_WINDOW_MS, confluenceIndex } from "@/lib/confluence";
 import { effectiveMinEntryPrice, isCategoryExcluded } from "@/lib/categoryEntryBand";
 import { cremaVerdict } from "@/lib/cremaCells";
 import { ELITE_POSITION_SIZE } from "@/lib/elite";
@@ -13,6 +14,7 @@ import { log } from "@/lib/logger";
 import { getControlSettings } from "@/lib/control";
 import { closePaperTrade, openPaperTrade } from "@/lib/paper/engine";
 import { isCryptoBookEligible, isQuotaTraderEligible } from "@/lib/profiler";
+import { selectByIdsChunked } from "@/lib/queries";
 import { getActiveRules } from "@/lib/rules";
 import { scoreTrade } from "@/lib/scoring/tradeScoring";
 import { escapeHtml, sendTelegramMessage, telegramConfigured } from "@/lib/telegram";
@@ -196,6 +198,37 @@ runScript("score:trades", async (db) => {
   const marketCache = new Map<string, MarketInfo>();
   const bookCache = new Map<string, OrderBook>();
   const counts = { paper_copy: 0, watchlist: 0, skip: 0, unfillable: 0, exits: 0 };
+
+  // 🔗 Confluence, computed ONCE for the whole batch instead of a query per
+  // signal. We load every observed BUY on the markets in this batch inside the
+  // window and let the pure indexer do the counting — it only ever looks
+  // BACKWARD, so a confirmation that arrives later (and was not available when
+  // we decided) can never inflate the number.
+  const batchMarkets = [...new Set(pending.map((p) => p.marketId))];
+  const oldestPending = Math.min(...pending.map((p) => p.timestamp.getTime()));
+  const confluenceRows = selectByIdsChunked(batchMarkets, (ids) =>
+    db
+      .select({
+        id: observedTrades.id,
+        walletAddress: observedTrades.walletAddress,
+        marketId: observedTrades.marketId,
+        outcome: observedTrades.outcome,
+        side: observedTrades.side,
+        timestamp: observedTrades.timestamp,
+      })
+      .from(observedTrades)
+      .where(
+        and(
+          inArray(observedTrades.marketId, ids),
+          gte(observedTrades.timestamp, new Date(oldestPending - CONFLUENCE_WINDOW_MS)),
+        ),
+      )
+      .all(),
+  );
+  const confluence = confluenceIndex(confluenceRows);
+  log.info(
+    `confluence: indexed ${confluenceRows.length} observed buys across ${batchMarkets.length} markets`,
+  );
 
   for (const obs of pending) {
     const now = new Date();
@@ -638,10 +671,23 @@ runScript("score:trades", async (db) => {
         thesisScore: result.subscores.thesisScore,
         simulatedPositionSize: filled ? result.simulatedPositionSize : null,
         blockedGate: decision === "paper_copy" ? null : blockedGate,
+        // Recorded on EVERY signal, copies and skips alike, so confluence can be
+        // judged against the counterfactuals too — not just against what we took.
+        confluenceCount: confluence.get(obs.id) ?? null,
         ruleSetVersion: version,
         createdAt: now,
       })
       .run();
+
+    // Copy it onto whatever ledgers opened from this signal, in ONE statement,
+    // so every book's matrix can slice by confluence without a join.
+    const conf = confluence.get(obs.id);
+    if (conf !== undefined) {
+      db.update(paperTrades)
+        .set({ confluenceCount: conf })
+        .where(eq(paperTrades.decisionJournalId, journalId))
+        .run();
+    }
 
     const detectedPrice = obs.side === "BUY" ? (book?.bestAsk ?? null) : (book?.bestBid ?? null);
     db.update(observedTrades)

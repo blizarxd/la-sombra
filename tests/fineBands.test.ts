@@ -6,6 +6,7 @@ import {
   SWEET_BAND_KEYS,
   buildAllMatrices,
   buildMatrix,
+  confluenceBandKey,
   fineBandKey,
   priceBandKey,
   type SettledTrade,
@@ -132,5 +133,41 @@ describe("la matriz de banda fina", () => {
   it("respeta el mínimo de muestra: 8 por celda, no 5", () => {
     const m = buildMatrix(Array.from({ length: 6 }, () => trade(0.57, 2)), spec);
     expect(m.bestPerCol.trade).toBeNull();
+  });
+});
+
+describe("confluenceBandKey — el eje de confirmación independiente", () => {
+  const withConf = (c: number | null | undefined) => trade(0.62, 1, { confluenceCount: c });
+
+  it("etiqueta por billeteras TOTALES: el recuento guardado son las OTRAS", () => {
+    expect(confluenceBandKey(withConf(0))).toBe("x1"); // solo nosotros
+    expect(confluenceBandKey(withConf(1))).toBe("x2");
+    expect(confluenceBandKey(withConf(2))).toBe("x3");
+    expect(confluenceBandKey(withConf(3))).toBe("x4");
+    expect(confluenceBandKey(withConf(9))).toBe("x4");
+  });
+
+  it("sin dato no cae en ninguna banda — las filas viejas no ensucian la matriz", () => {
+    expect(confluenceBandKey(withConf(null))).toBeNull();
+    expect(confluenceBandKey(withConf(undefined))).toBeNull();
+    expect(confluenceBandKey(withConf(NaN))).toBeNull();
+    expect(confluenceBandKey(withConf(-1))).toBeNull();
+  });
+
+  it("separa el trade solitario del racimo en filas distintas", () => {
+    const m = buildMatrix(
+      [
+        ...Array.from({ length: 12 }, () => trade(0.62, -1, { confluenceCount: 0 })),
+        ...Array.from({ length: 12 }, () => trade(0.62, 2, { confluenceCount: 3 })),
+      ],
+      { id: "t", title: "t", hint: "t", minSample: 8, rowDim: DIMS.confluence, colDim: DIMS.track },
+    );
+    expect(m.rows.find((r) => r.key === "x1")!.cells.trade!.pnl).toBeLessThan(0);
+    expect(m.rows.find((r) => r.key === "x4")!.cells.trade!.pnl).toBeGreaterThan(0);
+  });
+
+  it("la matriz de confluencia entra en el tablero", () => {
+    const ids = buildAllMatrices([trade(0.62, 1, { confluenceCount: 2 })]).map((m) => m.id);
+    expect(ids).toContain("confluence-track");
   });
 });

@@ -1087,6 +1087,11 @@ export function getSliceMatrices(db: Db, opts?: { sinceMs?: number }) {
       realizedPnl: paperTrades.realizedPnl,
       openedAt: paperTrades.openedAt,
       marketQuestion: paperTrades.marketQuestion,
+      // Needed by the duration and confluence matrices. Without these the two
+      // dimensions silently key to null and their rows never render at all.
+      resolvedAt: paperTrades.resolvedAt,
+      closedAt: paperTrades.closedAt,
+      confluenceCount: paperTrades.confluenceCount,
     })
     .from(paperTrades)
     .where(where)

@@ -42,6 +42,8 @@ export type SettledTrade = {
    *  (counterfactual) trades, which is why every duration metric is nullable. */
   resolvedAt?: Date | number | null;
   closedAt?: Date | number | null;
+  /** 🔗 Other distinct tracked wallets already in this position at entry. */
+  confluenceCount?: number | null;
 };
 
 const ms = (d: Date | number | null | undefined): number | null =>
@@ -235,6 +237,32 @@ export function holdBandKey(t: SettledTrade): string | null {
   return "t72";
 }
 
+/**
+ * 🔗 How many tracked wallets were in the position when we entered.
+ *
+ * Labelled by TOTAL wallets (stored count is "others before me", so total is
+ * count + 1) because that is how a human reads it: "three wallets agreed".
+ *
+ * This is the only signal in the project that does not require trusting any one
+ * wallet, which is exactly why it deserves its own axis: if agreement predicts
+ * outcome, it is a filter that survives a wallet going cold.
+ */
+export const CONFLUENCE_BANDS: Axis[] = [
+  { key: "x1", label: "1 billetera · sin confirmar" },
+  { key: "x2", label: "🔗 2 billeteras" },
+  { key: "x3", label: "🔗 3 billeteras" },
+  { key: "x4", label: "🔗 4+ billeteras · racimo" },
+];
+
+export function confluenceBandKey(t: SettledTrade): string | null {
+  const c = t.confluenceCount;
+  if (c === null || c === undefined || !Number.isFinite(c) || c < 0) return null;
+  if (c === 0) return "x1";
+  if (c === 1) return "x2";
+  if (c === 2) return "x3";
+  return "x4";
+}
+
 export const TRACK_AXIS: Axis[] = MATRIX_TRACKS.map((t) => ({ key: t, label: TRACK_LABELS[t] }));
 
 // Category axis in a stable, human order (not alphabetical). "otros" last.
@@ -261,6 +289,7 @@ export const DIMS = {
   category: { axis: CATEGORY_AXIS, keyOf: (t: SettledTrade) => categorizeMarket(t.marketQuestion) } satisfies Dim,
   holdBand: { axis: HOLD_BANDS, keyOf: (t: SettledTrade) => holdBandKey(t) } satisfies Dim,
   fineBand: { axis: FINE_BANDS, keyOf: (t: SettledTrade) => fineBandKey(t.entryPrice) } satisfies Dim,
+  confluence: { axis: CONFLUENCE_BANDS, keyOf: (t: SettledTrade) => confluenceBandKey(t) } satisfies Dim,
 };
 
 // ---------------------------------------------------------------------------
@@ -477,6 +506,14 @@ export function buildAllMatrices(trades: SettledTrade[]): Matrix[] {
       minSample: 8,
       rowDim: DIMS.fineBand,
       colDim: DIMS.category,
+    }),
+    buildMatrix(trades, {
+      id: "confluence-track",
+      title: "🔗 Confluencia × brazo",
+      hint: "¿Rinde más cuando VARIAS billeteras distintas coinciden en el mismo resultado? Es la única señal que no depende de confiar en una billetera concreta: si esto predice, es un filtro que sobrevive a que una se enfríe. Solo hay dato desde el 2026-08-07.",
+      minSample: 8,
+      rowDim: DIMS.confluence,
+      colDim: DIMS.track,
     }),
     buildMatrix(trades, {
       id: "hold-track",
