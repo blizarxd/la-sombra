@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getDb } from "@/db/client";
 import { MAX_PICK_SPREAD, MIN_PICK_SCORE, comboMath } from "@/lib/dailyPick";
 import { dayKeyTz, money, when } from "@/lib/format";
@@ -14,10 +15,39 @@ const STATUS_STYLE: Record<string, { label: string; className: string }> = {
   anulado: { label: "⊘ anulado", className: "text-mist" },
 };
 
-export default function PickPage() {
+/**
+ * View window. It filters WHICH DAYS ARE SHOWN, never what counts: the headline
+ * stats and the running total always cover the whole record. A tipster whose
+ * numbers change when you pick a date range is showing you a different bet.
+ */
+const PERIODS = [
+  { key: "hoy", days: 1, label: "Hoy" },
+  { key: "7d", days: 7, label: "Últimos 7 días" },
+  { key: "30d", days: 30, label: "Últimos 30 días" },
+  { key: "all", days: null, label: "Todo" },
+] as const;
+type PeriodKey = (typeof PERIODS)[number]["key"];
+
+export default async function PickPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ p?: string }>;
+}) {
   const db = getDb();
-  const { picks, record, alternatesRecord, days } = getDailyPicks(db);
+  const { p } = await searchParams;
+  const period = PERIODS.find((x) => x.key === (p as PeriodKey)) ?? PERIODS[PERIODS.length - 1];
+  const { picks, record, alternatesRecord, days: allDays } = getDailyPicks(db);
   const today = dayKeyTz(new Date());
+
+  // Cut by calendar day, not by a rolling millisecond window: "hoy" has to mean
+  // the day on the row, or the newest row silently drops out near midnight.
+  const cutoff =
+    period.days === null
+      ? null
+      : dayKeyTz(new Date(Date.parse(`${today}T12:00:00Z`) - (period.days - 1) * 86_400_000));
+  const days = cutoff === null ? allDays : allDays.filter((d) => d.date >= cutoff);
+
+  const shownPicks = cutoff === null ? picks : picks.filter((x) => x.pickDate >= cutoff);
   const todaysAll = picks.filter((p) => p.pickDate === today);
   const todays = todaysAll.find((p) => p.rank === 1) ?? null;
   const alternates = todaysAll.filter((p) => p.rank !== 1);
@@ -38,9 +68,29 @@ export default function PickPage() {
       <div>
         <h1 className="text-xl font-semibold text-white">🎯 El Pick del Día</h1>
         <p className="mt-1 text-sm text-mist">
-          Una sola selección al día, congelada <b className="text-white">antes</b> de saber el resultado, al precio que
-          costaría de verdad. Registro público en papel — aquí están todos los picks, ganados y perdidos.
+          Una sola selección al día <b className="text-white">+ 3 alternativas</b>, congeladas{" "}
+          <b className="text-white">antes</b> de saber el resultado, al precio que costaría de verdad. Registro público
+          en papel — aquí están todos los picks, ganados y perdidos.
         </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-mist">Ver:</span>
+          {PERIODS.map((x) => (
+            <Link
+              key={x.key}
+              href={x.key === "all" ? "/pick" : `/pick?p=${x.key}`}
+              className={`rounded-full border px-2.5 py-1 transition ${
+                x.key === period.key
+                  ? "border-accent bg-panel2 text-white"
+                  : "border-edge text-mist hover:text-white"
+              }`}
+            >
+              {x.label}
+            </Link>
+          ))}
+          <span className="text-mist">
+            — filtra lo que se MUESTRA; el marcador y el acumulado siempre cuentan el historial entero.
+          </span>
+        </div>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -198,33 +248,38 @@ export default function PickPage() {
       </Card>
 
       {days.length > 0 ? (
-        <Card title="📅 Día a día — para ir comparando">
+        <Card title="📅 Día a día — el pick oficial y sus alternativas">
           <p className="text-[11px] leading-4 text-mist">
             Una fila por día de calendario, incluidos los días que <b className="text-white">no</b> dieron pick: con qué
-            frecuencia dispara es parte de juzgarlo. El acumulado cuenta <b className="text-white">solo el pick oficial</b>{" "}
-            (#1) — sumar también las alternativas convertiría el marcador en «alguno de nuestros cuatro acertó».
+            frecuencia dispara es parte de juzgarlo. Debajo de cada 🥇 van sus alternativas con su propio resultado.
+            <br />
+            El acumulado cuenta <b className="text-white">solo el pick oficial</b> — sumar también las alternativas
+            convertiría el marcador en «alguno de nuestros cuatro acertó», que es el truco más viejo del gremio.
           </p>
           <Table>
             <thead>
               <tr>
                 <Th>Día</Th>
-                <Th>Pick oficial</Th>
+                <Th>#</Th>
+                <Th>Mercado</Th>
+                <Th>Lado</Th>
                 <Th className="text-right">Entrada</Th>
                 <Th className="text-right">Resultado</Th>
                 <Th className="text-right">PnL /$10</Th>
                 <Th className="text-right">Acumulado</Th>
-                <Th className="text-right">Alt.</Th>
               </tr>
             </thead>
             <tbody>
-              {days.map((d) => {
-                const st = STATUS_STYLE[d.status] ?? { label: "— sin pick", className: "text-mist" };
-                return (
-                  <tr key={d.date} className="border-t border-edge">
-                    <Td className="whitespace-nowrap text-mist">{d.date}</Td>
-                    <Td className={`max-w-[20rem] truncate ${d.noPick ? "text-mist italic" : "text-white"}`}>
+              {days.flatMap((d) => {
+                const st = STATUS_STYLE[d.status] ?? STATUS_STYLE["sin-pick"];
+                const rows = [
+                  <tr key={d.date} className="border-t-2 border-edge">
+                    <Td className="whitespace-nowrap font-medium text-white">{d.date}</Td>
+                    <Td className="text-mist">{d.noPick ? "—" : "🥇"}</Td>
+                    <Td className={`max-w-[18rem] truncate ${d.noPick ? "italic text-mist" : "text-white"}`}>
                       {d.noPick ? "sin pick — ninguna señal superó el estándar" : (d.main!.marketQuestion ?? "—")}
                     </Td>
+                    <Td className="text-mist">{d.main?.outcome ?? "—"}</Td>
                     <Td className="text-right tabular-nums text-mist">
                       {d.main ? `${Math.round(d.main.entryPrice * 100)}¢` : "—"}
                     </Td>
@@ -232,21 +287,83 @@ export default function PickPage() {
                     <Td className="text-right tabular-nums">
                       {d.pnlPer10 === null ? <span className="text-mist">—</span> : <PnlText value={d.pnlPer10} />}
                     </Td>
-                    <Td className="text-right tabular-nums">
+                    <Td className="text-right tabular-nums font-medium">
                       <PnlText value={d.cumulativePnl} />
                     </Td>
-                    <Td className="text-right text-mist">{d.alternates.length || "—"}</Td>
-                  </tr>
-                );
+                  </tr>,
+                ];
+                for (const a of d.alternates) {
+                  const ast = STATUS_STYLE[a.status] ?? STATUS_STYLE["sin-pick"];
+                  rows.push(
+                    <tr key={`${d.date}-${a.rank}`} className="border-t border-edge/40 bg-black/10">
+                      <Td />
+                      <Td className="text-mist">{a.rank}</Td>
+                      <Td className="max-w-[18rem] truncate text-mist">{a.marketQuestion ?? "—"}</Td>
+                      <Td className="text-mist">{a.outcome ?? "—"}</Td>
+                      <Td className="text-right tabular-nums text-mist">{Math.round(a.entryPrice * 100)}¢</Td>
+                      <Td className={`text-right ${ast.className}`}>{ast.label}</Td>
+                      <Td className="text-right tabular-nums">
+                        {a.pnlPer10 === null ? <span className="text-mist">—</span> : <PnlText value={a.pnlPer10} />}
+                      </Td>
+                      {/* Deliberately blank: alternates never move the official running total. */}
+                      <Td className="text-right text-mist">—</Td>
+                    </tr>,
+                  );
+                }
+                return rows;
               })}
             </tbody>
           </Table>
         </Card>
       ) : null}
 
-      <Card title="🗂️ Historial completo">
-        {picks.length === 0 ? (
-          <p className="text-sm text-mist">Sin picks todavía. El primero se congela en el corte de las 8am.</p>
+      <Card title="🎲 Cómo van las alternativas — contabilidad aparte">
+        {alternatesRecord.settled === 0 ? (
+          <p className="text-sm text-mist">
+            Todavía no hay alternativas liquidadas. En cuanto resuelvan aparece aquí su marcador, siempre separado del
+            oficial.
+          </p>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <Stat
+                label="Acierto (alternativas)"
+                value={`${((alternatesRecord.winRate ?? 0) * 100).toFixed(0)}%`}
+                hint={`${alternatesRecord.settled} liquidadas de ${alternatesRecord.total}`}
+              />
+              <Stat
+                label="Necesario para empatar"
+                value={`${((alternatesRecord.breakEvenRate ?? 0) * 100).toFixed(0)}%`}
+                hint="según su precio medio"
+              />
+              <Stat
+                label="PnL por $10 fijos"
+                value={money(alternatesRecord.totalPnl)}
+                hint={`ROI ${(alternatesRecord.roi * 100).toFixed(1)}%`}
+              />
+              <Stat
+                label="vs. el pick oficial"
+                value={money(alternatesRecord.totalPnl - record.totalPnl)}
+                hint="positivo = las alternativas iban mejor"
+              />
+            </div>
+            <p className="mt-2 text-[11px] leading-4 text-mist">
+              Esta comparación es la que hace útil publicar cuatro: si las alternativas rinden{" "}
+              <b className="text-white">sistemáticamente</b> mejor que el #1, entonces el criterio de ordenación (piso de
+              la celda) está eligiendo mal y hay que cambiarlo. Si rinden igual o peor, el orden está haciendo su
+              trabajo. Lo que NUNCA se hace es mezclarlas en el marcador oficial.
+            </p>
+          </>
+        )}
+      </Card>
+
+      <Card title="🗂️ Historial completo — fila por fila">
+        {shownPicks.length === 0 ? (
+          <p className="text-sm text-mist">
+            {picks.length === 0
+              ? "Sin picks todavía. El primero se congela en el corte de las 8am."
+              : `Sin picks publicados en ${period.label.toLowerCase()}. Prueba a ampliar el periodo arriba.`}
+          </p>
         ) : (
           <Table>
             <thead>
@@ -261,7 +378,7 @@ export default function PickPage() {
               </tr>
             </thead>
             <tbody>
-              {picks.map((p) => {
+              {shownPicks.map((p) => {
                 const st = STATUS_STYLE[p.status] ?? { label: p.status, className: "text-mist" };
                 return (
                   <tr key={p.id} className="border-t border-edge">
