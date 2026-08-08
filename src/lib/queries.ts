@@ -18,7 +18,7 @@ import {
   walletProfiles,
 } from "@/db/schema";
 import { canonicalGoldRule, loadAllCells } from "./cremaCells";
-import { summarizeRecord } from "./dailyPick";
+import { byCalendarDay, summarizeRecord } from "./dailyPick";
 import {
   computeBenchmarks,
   computeSkipAutopsy,
@@ -746,9 +746,10 @@ export function getDailyPicks(db: Db) {
       picks,
       record: summarizeRecord(picks.filter((p) => p.rank === 1)),
       alternatesRecord: summarizeRecord(picks.filter((p) => p.rank !== 1)),
+      days: byCalendarDay(picks, dayKeyTz(new Date())),
     };
   } catch {
-    return { picks: [], record: summarizeRecord([]), alternatesRecord: summarizeRecord([]) };
+    return { picks: [], record: summarizeRecord([]), alternatesRecord: summarizeRecord([]), days: [] };
   }
 }
 

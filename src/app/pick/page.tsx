@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const STATUS_STYLE: Record<string, { label: string; className: string }> = {
   abierto: { label: "⏳ abierto", className: "text-mist" },
+  "sin-pick": { label: "— sin pick", className: "text-mist" },
   ganado: { label: "✅ ganado", className: "text-profit" },
   perdido: { label: "❌ perdido", className: "text-loss" },
   anulado: { label: "⊘ anulado", className: "text-mist" },
@@ -15,7 +16,7 @@ const STATUS_STYLE: Record<string, { label: string; className: string }> = {
 
 export default function PickPage() {
   const db = getDb();
-  const { picks, record, alternatesRecord } = getDailyPicks(db);
+  const { picks, record, alternatesRecord, days } = getDailyPicks(db);
   const today = dayKeyTz(new Date());
   const todaysAll = picks.filter((p) => p.pickDate === today);
   const todays = todaysAll.find((p) => p.rank === 1) ?? null;
@@ -195,6 +196,53 @@ export default function PickPage() {
           que deberías juzgarnos, y el que ningún tipster enseña.
         </p>
       </Card>
+
+      {days.length > 0 ? (
+        <Card title="📅 Día a día — para ir comparando">
+          <p className="text-[11px] leading-4 text-mist">
+            Una fila por día de calendario, incluidos los días que <b className="text-white">no</b> dieron pick: con qué
+            frecuencia dispara es parte de juzgarlo. El acumulado cuenta <b className="text-white">solo el pick oficial</b>{" "}
+            (#1) — sumar también las alternativas convertiría el marcador en «alguno de nuestros cuatro acertó».
+          </p>
+          <Table>
+            <thead>
+              <tr>
+                <Th>Día</Th>
+                <Th>Pick oficial</Th>
+                <Th className="text-right">Entrada</Th>
+                <Th className="text-right">Resultado</Th>
+                <Th className="text-right">PnL /$10</Th>
+                <Th className="text-right">Acumulado</Th>
+                <Th className="text-right">Alt.</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {days.map((d) => {
+                const st = STATUS_STYLE[d.status] ?? { label: "— sin pick", className: "text-mist" };
+                return (
+                  <tr key={d.date} className="border-t border-edge">
+                    <Td className="whitespace-nowrap text-mist">{d.date}</Td>
+                    <Td className={`max-w-[20rem] truncate ${d.noPick ? "text-mist italic" : "text-white"}`}>
+                      {d.noPick ? "sin pick — ninguna señal superó el estándar" : (d.main!.marketQuestion ?? "—")}
+                    </Td>
+                    <Td className="text-right tabular-nums text-mist">
+                      {d.main ? `${Math.round(d.main.entryPrice * 100)}¢` : "—"}
+                    </Td>
+                    <Td className={`text-right ${st.className}`}>{st.label}</Td>
+                    <Td className="text-right tabular-nums">
+                      {d.pnlPer10 === null ? <span className="text-mist">—</span> : <PnlText value={d.pnlPer10} />}
+                    </Td>
+                    <Td className="text-right tabular-nums">
+                      <PnlText value={d.cumulativePnl} />
+                    </Td>
+                    <Td className="text-right text-mist">{d.alternates.length || "—"}</Td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </Table>
+        </Card>
+      ) : null}
 
       <Card title="🗂️ Historial completo">
         {picks.length === 0 ? (

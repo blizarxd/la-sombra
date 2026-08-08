@@ -74,8 +74,10 @@ runScript("pick:select", async (db) => {
   // One market only: the same game showing up from three wallets is one opinion.
   const seen = new Set<string>();
   const candidates: PickCandidate[] = [];
+  // Funnel, so a day with no pick can be explained instead of guessed at.
+  const funnel = { señales: rows.length, dupOMercadoSinToken: 0, sinLibro: 0, fueraDeCelda: 0, exploratoria: 0 };
   for (const r of rows) {
-    if (seen.has(r.marketId) || !r.tokenId) continue;
+    if (seen.has(r.marketId) || !r.tokenId) { funnel.dupOMercadoSinToken++; continue; }
     seen.add(r.marketId);
 
     // Live book: the pick must be priced at what it would ACTUALLY cost right
@@ -88,19 +90,30 @@ runScript("pick:select", async (db) => {
       bestBid = book.bestBid;
     } catch (err) {
       log.warn(`[pick:select] sin libro para ${r.marketId}: ${err instanceof Error ? err.message : String(err)}`);
+      funnel.sinLibro++;
       continue; // no price = no honest pick; never fall back to a stale one
     }
-    if (bestAsk == null) continue;
+    if (bestAsk == null) { funnel.sinLibro++; continue; }
 
     const category = categorizeMarket(r.marketQuestion);
     const verdict = verdictFromCells(active, {
       arm: "core",
       category,
-      hourInAppTz: hourInAppTz(now),
+      // The SIGNAL's hour, not the script's. This ran on the daily cut at 08:00,
+      // so using `now` made every single pick match the `hour:08` cell and
+      // nothing else — a cron artefact dressed up as a finding, and a guarantee
+      // that picks would stop entirely the day that one cell got pruned. The
+      // cells were derived from each trade's own openedAt, so the signal's hour
+      // is the only one the evidence is actually about.
+      hourInAppTz: hourInAppTz(r.createdAt),
       entryPrice: bestAsk,
     });
     // Exploratory hits are learning bets, not recommendations — never publish one.
-    if (!verdict.gold || verdict.exploratory) continue;
+    if (!verdict.gold || verdict.exploratory) {
+      if (verdict.exploratory) funnel.exploratoria++;
+      else funnel.fueraDeCelda++;
+      continue;
+    }
 
     const cell = active.find((c) => c.id === verdict.ruleId) ?? null;
     candidates.push({
@@ -122,13 +135,14 @@ runScript("pick:select", async (db) => {
     if (candidates.length >= 12) break; // enough to choose from; each costs an API call
   }
 
+  const embudo = `señales ${funnel.señales} → dup/sin-token ${funnel.dupOMercadoSinToken} · sin libro ${funnel.sinLibro} · fuera de celda de oro ${funnel.fueraDeCelda} · exploratorias ${funnel.exploratoria} → candidatos ${candidates.length}`;
   const choices = choosePicks(candidates);
   if (choices.length === 0) {
-    log.info(
-      `[pick:select] ${today} — ${candidates.length} candidatos pero ninguno supera el estándar; HOY NO HAY PICK`,
-    );
+    // Say WHERE the day died, so "hoy no hay pick" is a diagnosis and not a shrug.
+    log.info(`[pick:select] ${today} — HOY NO HAY PICK · ${embudo}`);
     return;
   }
+  log.info(`[pick:select] ${today} embudo: ${embudo}`);
 
   for (const [i, choice] of choices.entries()) {
     const c = choice.candidate;

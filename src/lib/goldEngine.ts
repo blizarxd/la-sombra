@@ -400,7 +400,14 @@ export function applyScan(
     }`;
   };
 
-  const activeGoldCount = () => [...rows.values()].filter((r) => r.kind === "gold" && r.status === "activa").length;
+  // Only cells that can actually GATE an entry compete for the cap. A cell
+  // pinned to a hold band is unusable at decision time — how long a market will
+  // take to settle is not knowable when you buy — so `matches()` always rejects
+  // it. Counting those against MAX_ACTIVE_GOLD let dead cells crowd out live
+  // ones: the strategy would stop copying because its 12 slots were full of
+  // rules it could never apply.
+  const activeGoldCount = () =>
+    [...rows.values()].filter((r) => r.kind === "gold" && r.status === "activa" && !r.params.holdBand).length;
 
   const fold = (kind: CellKind, survivors: CellScan[]) => {
     for (const s of survivors) {

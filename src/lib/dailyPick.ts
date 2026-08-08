@@ -223,6 +223,77 @@ export type PickRecord = {
   worstStreak: number;
 };
 
+export type DayRow = {
+  pickDate: string;
+  rank: number;
+  status: string;
+  entryPrice: number;
+  pnlPer10: number | null;
+  marketQuestion?: string | null;
+  outcome?: string | null;
+  cellLabel?: string | null;
+};
+
+export type DaySummary = {
+  date: string;
+  /** The day's rank-1 pick, or null on a day that produced none. */
+  main: DayRow | null;
+  alternates: DayRow[];
+  /** Result of the official pick only. */
+  status: string;
+  pnlPer10: number | null;
+  /** Running total of the official record up to and including this day. */
+  cumulativePnl: number;
+  /** True when the day published nothing — a real outcome, not a gap in the data. */
+  noPick: boolean;
+};
+
+/**
+ * One row per CALENDAR day, oldest first, including days that produced no pick.
+ *
+ * Rendering only the days that happen to have picks would quietly hide the
+ * skips, and "how often does it even fire?" is part of judging a tipster. A day
+ * with no pick is a result, so it gets a row.
+ */
+export function byCalendarDay(rows: DayRow[], todayKey?: string): DaySummary[] {
+  if (rows.length === 0) return [];
+  const byDate = new Map<string, DayRow[]>();
+  for (const r of rows) {
+    const arr = byDate.get(r.pickDate) ?? [];
+    arr.push(r);
+    byDate.set(r.pickDate, arr);
+  }
+
+  const dates = [...byDate.keys()].sort();
+  const first = dates[0];
+  const last = todayKey && todayKey > dates[dates.length - 1] ? todayKey : dates[dates.length - 1];
+
+  const out: DaySummary[] = [];
+  let cumulative = 0;
+  for (let d = first; d <= last; d = nextDay(d)) {
+    const day = byDate.get(d) ?? [];
+    const main = day.find((r) => r.rank === 1) ?? null;
+    if (main?.pnlPer10 != null) cumulative += main.pnlPer10;
+    out.push({
+      date: d,
+      main,
+      alternates: day.filter((r) => r.rank !== 1).sort((a, b) => a.rank - b.rank),
+      status: main?.status ?? "sin-pick",
+      pnlPer10: main?.pnlPer10 ?? null,
+      cumulativePnl: Math.round(cumulative * 100) / 100,
+      noPick: !main,
+    });
+  }
+  return out;
+}
+
+/** Next YYYY-MM-DD, calendar-correct across months and leap years. */
+export function nextDay(dayKey: string): string {
+  const [y, m, d] = dayKey.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d + 1));
+  return dt.toISOString().slice(0, 10);
+}
+
 export function summarizeRecord(rows: PickRow[]): PickRecord {
   const settled = rows.filter((r) => r.status === "ganado" || r.status === "perdido");
   const won = settled.filter((r) => r.status === "ganado").length;

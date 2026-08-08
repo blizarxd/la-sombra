@@ -49,6 +49,11 @@ async function main() {
   step("paper-update-pnl.ts");
   step("combo-tick.ts"); // 🧩 combo book: copy + settle (own ledger, own settlement)
   step("review-outcomes.ts");
+  // 🎯 Settle published picks here, not only on the daily cut. A game that ends
+  // at 22:00 was sitting unresolved on the public record until the next morning,
+  // which makes the scoreboard look stale exactly when someone checks it. Cheap:
+  // one market lookup, and only while picks are actually open.
+  step("resolve-daily-picks.ts");
 
   log.info("[operator:tick] === tick complete ===");
 }

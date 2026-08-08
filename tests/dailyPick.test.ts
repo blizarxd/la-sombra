@@ -3,12 +3,15 @@ import {
   MAX_PICK_SPREAD,
   MIN_PICK_SCORE,
   choosePick,
+  byCalendarDay,
   choosePicks,
   comboMath,
+  nextDay,
   isEligible,
   pickPnl,
   spreadOf,
   summarizeRecord,
+  type DayRow,
   type PickCandidate,
   type PickRow,
 } from "@/lib/dailyPick";
@@ -268,5 +271,73 @@ describe("comboMath — la aritmética de juntar dos", () => {
     expect(m.spreadCents).toBeNull();
     expect(m.evPer10).toBeNull();
     expect(m.combinedPrice).toBeCloseTo(0.455, 6); // the price still computes
+  });
+});
+
+describe("byCalendarDay — el día a día", () => {
+  const d = (o: Partial<DayRow> = {}): DayRow => ({
+    pickDate: "2026-08-07",
+    rank: 1,
+    status: "ganado",
+    entryPrice: 0.6,
+    pnlPer10: 6.67,
+    ...o,
+  });
+
+  it("una fila por día, la más vieja primero", () => {
+    const days = byCalendarDay([d({ pickDate: "2026-08-09" }), d({ pickDate: "2026-08-07" })]);
+    expect(days.map((x) => x.date)).toEqual(["2026-08-07", "2026-08-08", "2026-08-09"]);
+  });
+
+  it("🔒 un día SIN pick aparece igual: saltárselo escondería con qué frecuencia dispara", () => {
+    const days = byCalendarDay([d({ pickDate: "2026-08-07" }), d({ pickDate: "2026-08-10" })]);
+    const gap = days.filter((x) => x.noPick).map((x) => x.date);
+    expect(gap).toEqual(["2026-08-08", "2026-08-09"]);
+    expect(days.find((x) => x.date === "2026-08-08")!.status).toBe("sin-pick");
+  });
+
+  it("separa el pick oficial de sus alternativas", () => {
+    const days = byCalendarDay([d(), d({ rank: 2, status: "perdido", pnlPer10: -10 }), d({ rank: 3 })]);
+    expect(days[0].main!.rank).toBe(1);
+    expect(days[0].alternates.map((a) => a.rank)).toEqual([2, 3]);
+  });
+
+  it("el acumulado SOLO cuenta el pick oficial, nunca las alternativas", () => {
+    // Otherwise the record silently becomes "at least one of our four won".
+    const days = byCalendarDay([
+      d({ pickDate: "2026-08-07", rank: 1, pnlPer10: -10, status: "perdido" }),
+      d({ pickDate: "2026-08-07", rank: 2, pnlPer10: 50, status: "ganado" }),
+    ]);
+    expect(days[0].cumulativePnl).toBe(-10);
+  });
+
+  it("el acumulado se arrastra y los días sin pick no lo mueven", () => {
+    const days = byCalendarDay([
+      d({ pickDate: "2026-08-07", pnlPer10: 5 }),
+      d({ pickDate: "2026-08-10", pnlPer10: -10 }),
+    ]);
+    expect(days.map((x) => x.cumulativePnl)).toEqual([5, 5, 5, -5]);
+  });
+
+  it("un abierto no suma todavía", () => {
+    const days = byCalendarDay([d({ status: "abierto", pnlPer10: null })]);
+    expect(days[0].cumulativePnl).toBe(0);
+    expect(days[0].status).toBe("abierto");
+  });
+
+  it("extiende hasta HOY aunque hoy no haya pick", () => {
+    const days = byCalendarDay([d({ pickDate: "2026-08-07" })], "2026-08-09");
+    expect(days[days.length - 1].date).toBe("2026-08-09");
+    expect(days[days.length - 1].noPick).toBe(true);
+  });
+
+  it("sin picks no inventa calendario", () => {
+    expect(byCalendarDay([])).toEqual([]);
+  });
+
+  it("nextDay cruza mes y año bien", () => {
+    expect(nextDay("2026-08-31")).toBe("2026-09-01");
+    expect(nextDay("2026-12-31")).toBe("2027-01-01");
+    expect(nextDay("2028-02-28")).toBe("2028-02-29"); // leap year
   });
 });
