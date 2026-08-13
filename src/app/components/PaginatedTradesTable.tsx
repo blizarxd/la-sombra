@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CATEGORY_LABELS, categorizeMarket, type CategoryKey } from "@/lib/category";
 import { splitComboLegs } from "@/lib/comboLegs";
 import { money, price, shortAddr, when } from "@/lib/format";
+import { FINE_BANDS, fineBandKey } from "@/lib/slices";
 import { Badge, Empty, PnlText, Table, Td, Th } from "./ui";
 
 /** One trade row, pre-serialized on the server (no functions crossing the boundary). */
@@ -64,6 +65,7 @@ export function PaginatedTradesTable({
   const [pageSize, setPageSize] = useState<number | "all">(20);
   const [page, setPage] = useState(0);
   const [category, setCategory] = useState<CategoryKey | "all">("all");
+  const [band, setBand] = useState<string | "all">("all");
 
   // Derive each row's category once (from the market text — the API category is
   // ~98% null). Build the filter options from the categories actually present,
@@ -81,11 +83,40 @@ export function PaginatedTradesTable({
 
   const presentCats = [...catCounts.entries()].sort((a, b) => b[1] - a[1]);
 
+  // 💲 Entry-band buckets, using the SAME cuts as the fine-band matrix so a
+  // number read here means the same thing as a number read there. Each chip
+  // carries its own settled scoreboard, because filtering without measuring
+  // just moves rows around: the point is to compare bands, not to browse them.
+  const bandStats = useMemo(() => {
+    const acc = new Map<string, { n: number; settled: number; pnl: number; staked: number; wins: number }>();
+    for (const r of rows) {
+      const k = fineBandKey(r.entryPrice);
+      if (!k) continue;
+      const a = acc.get(k) ?? { n: 0, settled: 0, pnl: 0, staked: 0, wins: 0 };
+      a.n += 1;
+      // Only SETTLED rows feed the scoreboard: an open position marked to the
+      // bid is noise, and mixing it in would make every band look negative.
+      if (r.status !== "abierto" && r.status !== "open" && r.pnl !== null) {
+        a.settled += 1;
+        a.pnl += r.pnl;
+        a.staked += r.size || 0;
+        if (r.pnl > 0) a.wins += 1;
+      }
+      acc.set(k, a);
+    }
+    return acc;
+  }, [rows]);
+
   if (rows.length === 0) {
     return <Empty>{emptyHint ?? "Aún no hay trades para mostrar."}</Empty>;
   }
 
-  const filtered = category === "all" ? rows : rows.filter((r) => rowCat.get(r.id) === category);
+  const filtered = rows.filter(
+    (r) =>
+      (category === "all" || rowCat.get(r.id) === category) &&
+      (band === "all" || fineBandKey(r.entryPrice) === band),
+  );
+  const activeBand = band === "all" ? null : bandStats.get(band);
 
   const size = pageSize === "all" ? filtered.length : pageSize;
   const totalPages = Math.max(1, Math.ceil(filtered.length / size));
@@ -100,6 +131,11 @@ export function PaginatedTradesTable({
 
   const setCat = (c: CategoryKey | "all") => {
     setCategory(c);
+    setPage(0);
+  };
+
+  const setBandKey = (b: string | "all") => {
+    setBand(b);
     setPage(0);
   };
 
@@ -187,6 +223,63 @@ export function PaginatedTradesTable({
               {CATEGORY_LABELS[c]} ({n})
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {bandStats.size > 1 ? (
+        <div className="mb-2 space-y-1">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="mr-1">Cuota de entrada:</span>
+            <button
+              onClick={() => setBandKey("all")}
+              className={`rounded-md border px-2 py-1 ${
+                band === "all" ? "border-accent bg-panel2 text-accent" : "border-edge text-mist hover:bg-panel2"
+              }`}
+            >
+              Todas ({rows.length})
+            </button>
+            {FINE_BANDS.filter((b) => bandStats.has(b.key)).map((b) => {
+              const s = bandStats.get(b.key)!;
+              const roi = s.staked > 0 ? s.pnl / s.staked : null;
+              // Colour by the SETTLED result, so the chip itself is the finding.
+              const tone =
+                roi === null ? "text-mist" : roi > 0 ? "text-profit" : roi < 0 ? "text-loss" : "text-mist";
+              return (
+                <button
+                  key={b.key}
+                  onClick={() => setBandKey(b.key)}
+                  className={`rounded-md border px-2 py-1 ${
+                    band === b.key ? "border-accent bg-panel2 text-accent" : "border-edge text-mist hover:bg-panel2"
+                  }`}
+                >
+                  {b.label} ({s.n})
+                  {roi !== null ? <span className={`ml-1 ${tone}`}>{(roi * 100).toFixed(1)}%</span> : null}
+                </button>
+              );
+            })}
+          </div>
+          {activeBand ? (
+            <p className="text-[11px] leading-4 text-mist">
+              {activeBand.settled === 0 ? (
+                <>Ninguna liquidada todavía en esta banda — los {activeBand.n} abiertos no dicen nada aún.</>
+              ) : (
+                <>
+                  <b className="text-white">{activeBand.settled}</b> liquidadas ·{" "}
+                  <b className="text-white">{Math.round((activeBand.wins / activeBand.settled) * 100)}%</b> acierto ·
+                  PnL{" "}
+                  <b className={activeBand.pnl >= 0 ? "text-profit" : "text-loss"}>{money(activeBand.pnl)}</b>
+                  {activeBand.staked > 0 ? ` · ROI ${((activeBand.pnl / activeBand.staked) * 100).toFixed(1)}%` : ""} ·{" "}
+                  {activeBand.n - activeBand.settled} abiertas sin contar.
+                </>
+              )}
+            </p>
+          ) : (
+            <p className="text-[11px] leading-4 text-mist">
+              El % de cada botón es el ROI de las <b className="text-white">liquidadas</b> de esa banda: las abiertas se
+              marcan al bid y meterlas haría ver todo en rojo. Los cortes son los mismos que la matriz de banda fina,
+              así que un número de aquí significa lo mismo que uno de allá.
+            </p>
+          )}
         </div>
       ) : null}
 
