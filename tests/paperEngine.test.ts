@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import { paperTrades, pnlSnapshots } from "@/db/schema";
 import type { OrderBook } from "@/lib/adapters/types";
 import {
+  DEPTH_LADDER_SIZES,
+  depthLadder,
   markPaperTrade,
   markToBid,
   openPaperTrade,
@@ -163,5 +165,51 @@ describe("paper trade lifecycle (create -> hourly mark -> resolve)", () => {
     expect(wFinal.status).toBe("resolved");
     expect(wFinal.currentPrice).toBe(1);
     expect(wFinal.resolvedAt).not.toBeNull();
+  });
+});
+
+describe("depthLadder", () => {
+  it("reports zero slippage while a single level absorbs the size", () => {
+    // Best ask holds 100 shares @ 0.52 = $52 of depth, so $20 never leaves it.
+    const ladder = depthLadder(book(), [20]);
+    expect(ladder.rungs[0].fillable).toBe(true);
+    expect(ladder.rungs[0].avgFillPrice).toBeCloseTo(0.52, 6);
+    expect(ladder.rungs[0].slippageCents).toBeCloseTo(0, 6);
+  });
+
+  it("shows slippage growing once the size walks past the touch", () => {
+    const thin = book({ asks: [{ price: 0.55, size: 20 }, { price: 0.62, size: 500 }] });
+    const ladder = depthLadder(thin, [5, 60]);
+    const [small, big] = ladder.rungs;
+    expect(small.slippageCents).toBeCloseTo(0, 6); // $5 fits inside $11 of touch
+    expect(big.slippageCents!).toBeGreaterThan(0); // $60 must eat the 0.62 level
+    expect(big.avgFillPrice!).toBeGreaterThan(small.avgFillPrice!);
+  });
+
+  it("marks rungs beyond the book's total depth as unfillable", () => {
+    const shallow = book({ asks: [{ price: 0.55, size: 20 }] }); // $11 total
+    const ladder = depthLadder(shallow, [5, 60]);
+    expect(ladder.rungs[0].fillable).toBe(true);
+    expect(ladder.rungs[1].fillable).toBe(false);
+    expect(ladder.maxFillableUsd).toBe(5);
+    expect(ladder.askDepthUsd).toBeCloseTo(11, 6);
+  });
+
+  it("is stored on the trade so depth can be sliced later", () => {
+    const db = testDb();
+    const opened = openPaperTrade(db, {
+      decisionJournalId: "dec-depth",
+      walletAddress: "0xw",
+      marketId: "0xcond",
+      tokenId: "tok-1",
+      marketQuestion: "Deep?",
+      outcome: "Yes",
+      usdSize: 5,
+      book: book(),
+    });
+    const row = db.select().from(paperTrades).where(eq(paperTrades.id, opened.paperTradeId!)).get()!;
+    const parsed = JSON.parse(row.depthLadderJson!);
+    expect(parsed.rungs.length).toBe(DEPTH_LADDER_SIZES.length);
+    expect(parsed.bestAsk).toBeCloseTo(0.52, 6);
   });
 });

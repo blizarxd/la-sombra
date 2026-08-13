@@ -240,6 +240,14 @@ export const paperTrades = sqliteTable(
     exploratory: integer("exploratory", { mode: "boolean" }).notNull().default(false),
     /** 🔗 Confluence at entry — copied from the journal so matrices can slice it. */
     confluenceCount: integer("confluence_count"),
+    /**
+     * 📏 Serialized DepthLadder: what the SAME book would have cost at bigger
+     * sizes than the one actually copied. Pure measurement, captured at entry
+     * from the book already in memory. Answers "does the edge survive a real
+     * stake, or only a $5 one?" — which no other stored field can tell us,
+     * because every price we record is the price AT THE COPIED SIZE.
+     */
+    depthLadderJson: text("depth_ladder_json"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),

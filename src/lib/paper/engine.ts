@@ -60,6 +60,62 @@ export function simulateBuyFill(book: OrderBook, usdSize: number): FillSimulatio
   };
 }
 
+/**
+ * 📏 DEPTH LADDER — how much size the book actually absorbs before the price
+ * degrades.
+ *
+ * The paper book copies at a small fixed size, so every stat we have describes
+ * the fill quality AT THAT SIZE. It says nothing about whether the same edge
+ * survives a bigger stake: a thin esports book can look perfect for $5 and eat
+ * several cents of slippage at $60, which would quietly erase an edge measured
+ * in single-digit percent.
+ *
+ * This walks the SAME book (already in memory, zero extra API calls) at a range
+ * of hypothetical sizes and records the average fill for each. It is pure
+ * measurement — it never changes what gets copied or at what size.
+ */
+export const DEPTH_LADDER_SIZES = [5, 10, 20, 40, 60, 100, 150, 250] as const;
+
+export interface DepthRung {
+  usd: number;
+  fillable: boolean;
+  /** Average price paid walking the ask side for this size. */
+  avgFillPrice: number | null;
+  /** Cents of slippage vs the best ask (0 = filled entirely at the touch). */
+  slippageCents: number | null;
+}
+
+export interface DepthLadder {
+  bestAsk: number | null;
+  /** Total USD the whole ask side could absorb. */
+  askDepthUsd: number;
+  /** Largest ladder size that still fills completely. */
+  maxFillableUsd: number;
+  rungs: DepthRung[];
+}
+
+export function depthLadder(
+  book: OrderBook,
+  sizes: readonly number[] = DEPTH_LADDER_SIZES,
+): DepthLadder {
+  const askDepthUsd = book.asks.reduce((sum, l) => sum + l.price * l.size, 0);
+  const rungs: DepthRung[] = sizes.map((usd) => {
+    const sim = simulateBuyFill(book, usd);
+    const slippageCents =
+      sim.fillable && sim.avgFillPrice !== null && book.bestAsk !== null
+        ? (sim.avgFillPrice - book.bestAsk) * 100
+        : null;
+    return { usd, fillable: sim.fillable, avgFillPrice: sim.avgFillPrice, slippageCents };
+  });
+  const fillable = rungs.filter((r) => r.fillable).map((r) => r.usd);
+  return {
+    bestAsk: book.bestAsk,
+    askDepthUsd,
+    maxFillableUsd: fillable.length ? Math.max(...fillable) : 0,
+    rungs,
+  };
+}
+
 /** Value of an open long position if sold into the bid side right now. */
 export function markToBid(bids: BookLevel[], shares: number): number | null {
   if (!bids.length) return null;
@@ -126,6 +182,9 @@ export function openPaperTrade(db: Db, input: OpenPaperTradeInput): OpenPaperTra
       realizedPnl: null,
       status: "open",
       track: input.track ?? "core",
+      // 📏 Same book, bigger hypothetical sizes. Free (no extra fetch) and the
+      // only way to learn whether this edge survives a stake worth trading.
+      depthLadderJson: JSON.stringify(depthLadder(input.book)),
       openedAt: now,
     })
     .run();

@@ -26,6 +26,7 @@ import {
   type DecisionOutcomeRow,
 } from "./benchmarks";
 import { categorizeMarket, type CategoryKey } from "./category";
+import { analyzeDepth, parseLadder } from "./depth";
 import { dayKeyTz } from "./format";
 import { isCryptoBookEligible } from "./profiler";
 import { getActiveRules } from "./rules";
@@ -750,6 +751,62 @@ export function getDailyPicks(db: Db) {
     };
   } catch {
     return { picks: [], record: summarizeRecord([]), alternatesRecord: summarizeRecord([]), days: [] };
+  }
+}
+
+/**
+ * 📏 Depth study: per-size fill quality, overall and split by category.
+ *
+ * Only trades opened after the ladder instrument shipped carry data, so the
+ * sample starts empty and grows. Returning an honest empty report (rather than
+ * inventing numbers) is what lets the page say "still collecting".
+ */
+export function getDepthStudy(db: Db) {
+  try {
+    const rows = db
+      .select({
+        entryPrice: paperTrades.entryPrice,
+        marketQuestion: paperTrades.marketQuestion,
+        depthLadderJson: paperTrades.depthLadderJson,
+        openedAt: paperTrades.openedAt,
+      })
+      .from(paperTrades)
+      .where(ne(paperTrades.track, "elite"))
+      .all();
+
+    const inputs: { ladder: NonNullable<ReturnType<typeof parseLadder>>; entryPrice: number; category: CategoryKey }[] = [];
+    for (const r of rows) {
+      const ladder = parseLadder(r.depthLadderJson);
+      if (!ladder) continue;
+      inputs.push({ ladder, entryPrice: r.entryPrice, category: categorizeMarket(r.marketQuestion) });
+    }
+
+    const byCategory = new Map<CategoryKey, typeof inputs>();
+    for (const i of inputs) {
+      const list = byCategory.get(i.category) ?? [];
+      list.push(i);
+      byCategory.set(i.category, list);
+    }
+
+    // The band the strategy actually trades — depth there is what decides
+    // whether a bigger stake is viable, so it gets measured on its own.
+    const sweet = inputs.filter((i) => i.entryPrice >= 0.55 && i.entryPrice < 0.6);
+
+    const firstAt = rows
+      .filter((r) => r.depthLadderJson)
+      .reduce<Date | null>((min, r) => (!min || r.openedAt < min ? r.openedAt : min), null);
+
+    return {
+      overall: analyzeDepth(inputs),
+      sweetBand: analyzeDepth(sweet),
+      byCategory: [...byCategory.entries()]
+        .map(([category, list]) => ({ category, report: analyzeDepth(list) }))
+        .filter((c) => c.report.sampleSize >= 5)
+        .sort((a, b) => b.report.sampleSize - a.report.sampleSize),
+      collectingSince: firstAt,
+    };
+  } catch {
+    return { overall: analyzeDepth([]), sweetBand: analyzeDepth([]), byCategory: [], collectingSince: null };
   }
 }
 

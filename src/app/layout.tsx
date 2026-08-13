@@ -22,6 +22,7 @@ const nav = [
   { href: "/journal", label: "Diario de decisiones" },
   { href: "/performance", label: "Rendimiento" },
   { href: "/matriz", label: "🔬 Matriz" },
+  { href: "/profundidad", label: "📏 Profundidad" },
   { href: "/rules", label: "Reglas" },
   { href: "/recomendaciones", label: "🧠 Recomendaciones" },
   { href: "/reports", label: "Reportes" },
