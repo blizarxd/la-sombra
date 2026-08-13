@@ -48,6 +48,10 @@ async function main() {
   step("score-trades.ts");
   step("paper-update-pnl.ts");
   step("combo-tick.ts"); // 🧩 combo book: copy + settle (own ledger, own settlement)
+  // 💰 capital book: mirror qualifying copies into ONE constrained bankroll.
+  // Runs AFTER score-trades (so new copies exist) and after paper-update-pnl
+  // (so closes are visible), since it only settles what the arms already did.
+  step("capital-book-tick.ts");
   step("review-outcomes.ts");
   // 🎯 Settle published picks here, not only on the daily cut. A game that ends
   // at 22:00 was sitting unresolved on the public record until the next morning,

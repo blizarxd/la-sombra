@@ -2,6 +2,7 @@ import { and, desc, eq, gte, inArray, like, ne, sql } from "drizzle-orm";
 import type { Db } from "@/db/client";
 import {
   aiAnalyses,
+  capitalBook,
   cremaEvolution,
   dailyPicks,
   dailyReports,
@@ -27,6 +28,7 @@ import {
 } from "./benchmarks";
 import { categorizeMarket, type CategoryKey } from "./category";
 import { analyzeDepth, parseLadder } from "./depth";
+import { CAPITAL_START, FLAT_STAKE } from "./capitalBook";
 import { dayKeyTz } from "./format";
 import { isCryptoBookEligible } from "./profiler";
 import { getActiveRules } from "./rules";
@@ -815,6 +817,73 @@ export function getDepthStudy(db: Db) {
       sweetBand: analyzeDepth([]),
       byCategory: [],
       collectingSince: null,
+      broken: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+/**
+ * 💰 Capital book: the constrained bankroll, its curve, and the funnel of what
+ * it had to turn away. The skip counts are not a footnote — they are how you
+ * tell "the strategy is good" from "the rules let us trade the strategy".
+ */
+export function getCapitalBook(db: Db) {
+  try {
+    const rows = db.select().from(capitalBook).orderBy(desc(capitalBook.openedAt)).all();
+    const taken = rows.filter((r) => r.status !== "skipped");
+    const skipped = rows.filter((r) => r.status === "skipped");
+    const settledRows = taken.filter((r) => r.realizedPnl !== null);
+    const open = taken.filter((r) => r.status === "open");
+
+    const realized = settledRows.reduce((s, r) => s + (r.realizedPnl ?? 0), 0);
+    const wins = settledRows.filter((r) => (r.realizedPnl ?? 0) > 0).length;
+    const capital = CAPITAL_START + realized;
+    const committed = open.length * FLAT_STAKE;
+
+    const skipReasons = new Map<string, number>();
+    for (const s of skipped) {
+      const k = s.skipReason ?? "desconocido";
+      skipReasons.set(k, (skipReasons.get(k) ?? 0) + 1);
+    }
+
+    // Curve in chronological order, seeded at the starting bankroll so the
+    // chart shows the whole journey rather than starting at the first win.
+    const curve = [...settledRows]
+      .sort((a, b) => (a.closedAt?.getTime() ?? 0) - (b.closedAt?.getTime() ?? 0))
+      .map((r) => ({ at: r.closedAt, capital: r.capitalAfter ?? null }));
+
+    const slippages = taken
+      .map((r) => r.slippageCents)
+      .filter((s): s is number => s !== null)
+      .sort((a, b) => a - b);
+
+    return {
+      rows,
+      open,
+      settled: settledRows,
+      capital,
+      committed,
+      freeCapital: capital - committed,
+      realized,
+      roi: settledRows.length ? realized / (settledRows.length * FLAT_STAKE) : null,
+      winRate: settledRows.length ? wins / settledRows.length : null,
+      settledCount: settledRows.length,
+      takenCount: taken.length,
+      skippedCount: skipped.length,
+      seenCount: rows.length,
+      skipReasons: [...skipReasons.entries()].sort((a, b) => b[1] - a[1]),
+      medianSlippageCents: slippages.length ? slippages[Math.floor(slippages.length / 2)] : null,
+      curve,
+      startedAt: rows.length ? rows[rows.length - 1].openedAt : null,
+      broken: null as string | null,
+    };
+  } catch (err) {
+    return {
+      rows: [], open: [], settled: [], capital: CAPITAL_START, committed: 0,
+      freeCapital: CAPITAL_START, realized: 0, roi: null, winRate: null,
+      settledCount: 0, takenCount: 0, skippedCount: 0, seenCount: 0,
+      skipReasons: [] as [string, number][], medianSlippageCents: null,
+      curve: [] as { at: Date | null; capital: number | null }[], startedAt: null,
       broken: err instanceof Error ? err.message : String(err),
     };
   }

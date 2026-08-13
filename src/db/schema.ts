@@ -533,3 +533,59 @@ export const comboLegResolutions = sqliteTable("combo_leg_resolutions", {
   outcomePricesJson: text("outcome_prices_json"),
   resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+// ---------------------------------------------------------------------------
+// 💰 Capital book — the forward-tracked, capital-constrained simulation
+// ---------------------------------------------------------------------------
+/**
+ * The arms copy at a small flat size with no shared wallet, so their combined
+ * PnL answers "does this signal have edge?" but NOT "could one bankroll have
+ * actually taken these trades?". Those differ: a real account has finite cash,
+ * can only hold so many positions at once, and pays a worse fill for a bigger
+ * stake.
+ *
+ * This book mirrors qualifying copies into ONE simulated bankroll under hard
+ * rules (fixed capital, flat stake, max concurrent positions), pricing each
+ * entry at the measured fill for the REAL stake rather than the arm's small
+ * one. Signals that arrive with no room are recorded as SKIPPED, because "how
+ * many did the cap cost us" is the number that decides whether the rules are
+ * too tight.
+ *
+ * Still paper. Nothing here places an order.
+ */
+export const capitalBook = sqliteTable(
+  "capital_book",
+  {
+    id: text("id").primaryKey(),
+    /** The underlying arm copy this mirrors. Unique: never mirror one twice. */
+    paperTradeId: text("paper_trade_id").notNull(),
+    sourceTrack: text("source_track").notNull(),
+    marketId: text("market_id").notNull(),
+    marketQuestion: text("market_question"),
+    outcome: text("outcome"),
+    category: text("category"),
+    /** What the arm paid at its small size. */
+    armEntryPrice: real("arm_entry_price").notNull(),
+    /** What WE would pay at the real stake, read off the measured depth ladder. */
+    entryPrice: real("entry_price"),
+    /** Cents of degradation between the two — the price of trading real size. */
+    slippageCents: real("slippage_cents"),
+    stake: real("stake").notNull(),
+    shares: real("shares"),
+    status: text("status", { enum: ["open", "closed", "resolved", "skipped"] })
+      .notNull()
+      .default("open"),
+    /** Why a signal was NOT taken: "concurrencia", "capital" or "libro-fino". */
+    skipReason: text("skip_reason"),
+    realizedPnl: real("realized_pnl"),
+    /** Bankroll AFTER this entry settled — the curve, precomputed. */
+    capitalAfter: real("capital_after"),
+    openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
+    closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("capital_book_trade_unique").on(t.paperTradeId),
+    index("capital_book_status_idx").on(t.status),
+    index("capital_book_opened_idx").on(t.openedAt),
+  ],
+);

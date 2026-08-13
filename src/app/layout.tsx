@@ -23,6 +23,7 @@ const nav = [
   { href: "/performance", label: "Rendimiento" },
   { href: "/matriz", label: "🔬 Matriz" },
   { href: "/profundidad", label: "📏 Profundidad" },
+  { href: "/capital", label: "💰 Libro de capital" },
   { href: "/rules", label: "Reglas" },
   { href: "/recomendaciones", label: "🧠 Recomendaciones" },
   { href: "/reports", label: "Reportes" },
