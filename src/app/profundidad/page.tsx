@@ -102,6 +102,18 @@ export default function ProfundidadPage() {
         </p>
       </div>
 
+      {study.broken ? (
+        <Card title="⚠️ El instrumento no está midiendo">
+          <p className="text-sm text-loss">
+            La consulta de profundidad falló, así que esta página no puede decir nada sobre el libro. No es que no haya
+            datos todavía — es que no se están leyendo.
+          </p>
+          <pre className="mt-2 overflow-x-auto rounded border border-edge bg-panel2 p-2 text-xs text-mist">
+            {study.broken}
+          </pre>
+        </Card>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-3">
         <Stat
           label="Copias con escalera medida"

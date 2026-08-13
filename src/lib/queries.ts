@@ -804,9 +804,19 @@ export function getDepthStudy(db: Db) {
         .filter((c) => c.report.sampleSize >= 5)
         .sort((a, b) => b.report.sampleSize - a.report.sampleSize),
       collectingSince: firstAt,
+      broken: null as string | null,
     };
-  } catch {
-    return { overall: analyzeDepth([]), sweetBand: analyzeDepth([]), byCategory: [], collectingSince: null };
+  } catch (err) {
+    // "No data yet" and "the instrument is broken" look identical from the
+    // outside, and quietly rendering the first when it is the second is how a
+    // dashboard starts lying. Surface the failure instead.
+    return {
+      overall: analyzeDepth([]),
+      sweetBand: analyzeDepth([]),
+      byCategory: [],
+      collectingSince: null,
+      broken: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
