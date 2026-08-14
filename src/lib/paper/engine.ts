@@ -146,6 +146,14 @@ export interface OpenPaperTradeInput {
   book: OrderBook;
   /** Ledger: "core" (main strategy), "live" (in-play experiment), "trade" (quota-scalper book), "crypto" (crypto book), "combo" (parlay book) or "elite" (top-10-weekly mirror). */
   track?: "core" | "live" | "trade" | "crypto" | "combo" | "elite";
+  /**
+   * Hours until the market's SCHEDULED end (Gamma `end_date` minus now), as
+   * already computed by the scorer for entry-timing checks. Captured here
+   * because /matriz's duration-vs-return breakdown is measured on how long a
+   * copy actually took to settle — after the fact, useless for picking a
+   * trade. This is the forward-looking twin: known at entry, zero lookahead.
+   */
+  expectedResolutionHours?: number | null;
   now?: Date;
 }
 
@@ -185,6 +193,7 @@ export function openPaperTrade(db: Db, input: OpenPaperTradeInput): OpenPaperTra
       // 📏 Same book, bigger hypothetical sizes. Free (no extra fetch) and the
       // only way to learn whether this edge survives a stake worth trading.
       depthLadderJson: JSON.stringify(depthLadder(input.book)),
+      expectedResolutionHours: input.expectedResolutionHours ?? null,
       openedAt: now,
     })
     .run();

@@ -248,6 +248,15 @@ export const paperTrades = sqliteTable(
      * because every price we record is the price AT THE COPIED SIZE.
      */
     depthLadderJson: text("depth_ladder_json"),
+    /**
+     * ⚡ Hours until the market's SCHEDULED end, known at entry (Gamma
+     * `end_date` minus now — already computed by the scorer, just not kept
+     * until now). /matriz's duration breakdown measures actual settle time,
+     * which is only known in hindsight; this is the same idea made usable as
+     * an entry-time filter. Null on trades before this was captured, and on
+     * any market with no published end date.
+     */
+    expectedResolutionHours: real("expected_resolution_hours"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
@@ -608,5 +617,56 @@ export const capitalBook = sqliteTable(
     uniqueIndex("capital_book_variant_trade_unique").on(t.variant, t.paperTradeId),
     index("capital_book_status_idx").on(t.status),
     index("capital_book_opened_idx").on(t.openedAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// ⚡ Fast book — forward-test of the duration finding (/matriz: <1h resolve
+// runs +$473.78 total vs -$1275.60 for 1-6h; esports <1h +17.9%, n=401)
+// ---------------------------------------------------------------------------
+/**
+ * The band book asks "does entry price predict edge?". This asks a different
+ * question found in the SAME matrix: does how FAST a market is scheduled to
+ * resolve predict edge? Esports/Deportes markets expected to settle within an
+ * hour showed the strongest, most consistent cells on the whole board — and
+ * fast turnover is also the direct fix for the band book's real problem
+ * (signals arriving faster than 3-5 slots can absorb).
+ *
+ * Same discipline as capital_book: one simulated bankroll, flat stake, one bet
+ * per market, priced off the measured depth ladder for the real stake. Eligible
+ * on expectedResolutionHours captured AT ENTRY — never the trade's actual
+ * settle time, which would be answering with information from the future.
+ */
+export const fastBook = sqliteTable(
+  "fast_book",
+  {
+    id: text("id").primaryKey(),
+    paperTradeId: text("paper_trade_id").notNull(),
+    sourceTrack: text("source_track").notNull(),
+    marketId: text("market_id").notNull(),
+    marketQuestion: text("market_question"),
+    outcome: text("outcome"),
+    category: text("category"),
+    expectedResolutionHours: real("expected_resolution_hours"),
+    armEntryPrice: real("arm_entry_price").notNull(),
+    entryPrice: real("entry_price"),
+    slippageCents: real("slippage_cents"),
+    stake: real("stake").notNull(),
+    shares: real("shares"),
+    status: text("status", { enum: ["open", "closed", "resolved", "skipped"] })
+      .notNull()
+      .default("open"),
+    skipReason: text("skip_reason"),
+    exitReason: text("exit_reason"),
+    armConfluence: integer("arm_confluence").notNull().default(1),
+    realizedPnl: real("realized_pnl"),
+    capitalAfter: real("capital_after"),
+    openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
+    closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("fast_book_trade_unique").on(t.paperTradeId),
+    index("fast_book_status_idx").on(t.status),
+    index("fast_book_opened_idx").on(t.openedAt),
   ],
 );

@@ -24,6 +24,7 @@ const nav = [
   { href: "/matriz", label: "🔬 Matriz" },
   { href: "/profundidad", label: "📏 Profundidad" },
   { href: "/capital", label: "💰 Libro de capital" },
+  { href: "/rapidas", label: "⚡ Rápidas" },
   { href: "/rules", label: "Reglas" },
   { href: "/recomendaciones", label: "🧠 Recomendaciones" },
   { href: "/reports", label: "Reportes" },

@@ -52,6 +52,9 @@ async function main() {
   // Runs AFTER score-trades (so new copies exist) and after paper-update-pnl
   // (so closes are visible), since it only settles what the arms already did.
   step("capital-book-tick.ts");
+  // ⚡ fast book: same discipline, selects by SCHEDULED resolution speed
+  // instead of price band (see fastBook.ts). Independent bankroll.
+  step("fast-book-tick.ts");
   step("review-outcomes.ts");
   // 🎯 Settle published picks here, not only on the daily cut. A game that ends
   // at 22:00 was sitting unresolved on the public record until the next morning,

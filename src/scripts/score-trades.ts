@@ -398,6 +398,7 @@ runScript("score:trades", async (db) => {
         usdSize: result.simulatedPositionSize,
         book,
         now,
+        expectedResolutionHours: timeToResolutionHours,
       });
       filled = open.opened;
       if (open.opened) {
@@ -476,6 +477,7 @@ runScript("score:trades", async (db) => {
           book,
           track: "live",
           now,
+          expectedResolutionHours: timeToResolutionHours,
         });
         if (liveTrade.opened) {
           reasons.push(`live experiment: opened $${control.liveStakeUsd.toFixed(2)} in-play copy (parallel ledger)`);
@@ -551,6 +553,7 @@ runScript("score:trades", async (db) => {
           book,
           track: "trade",
           now,
+          expectedResolutionHours: timeToResolutionHours,
         });
         if (tradeTrade.opened) {
           reasons.push(`trade book: opened $${tradeRules.minPositionSize.toFixed(2)} scalp copy of a quota-trader (parallel ledger)`);
@@ -622,6 +625,7 @@ runScript("score:trades", async (db) => {
           book,
           track: "crypto",
           now,
+          expectedResolutionHours: timeToResolutionHours,
         });
         if (cryptoTrade.opened) {
           reasons.push(`crypto book: opened $${cryptoRules.minPositionSize.toFixed(2)} crypto copy (parallel ledger)`);

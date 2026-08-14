@@ -4,6 +4,7 @@ import {
   aiAnalyses,
   capitalBook,
   cremaEvolution,
+  fastBook,
   dailyPicks,
   dailyReports,
   decisionJournal,
@@ -903,6 +904,108 @@ export function getCapitalBook(db: Db, variant: string = "c3") {
 }
 
 export type CapitalBookView = ReturnType<typeof getCapitalBook>;
+
+/**
+ * ⚡ Fast book: forward-test of the duration finding — see fastBook.ts. Same
+ * shape as getCapitalBook, minus the 3-vs-5 variant split (this book only
+ * runs one policy for now).
+ */
+export function getFastBook(db: Db) {
+  try {
+    const rows = db.select().from(fastBook).orderBy(desc(fastBook.openedAt)).all();
+    const taken = rows.filter((r) => r.status !== "skipped");
+    const skipped = rows.filter((r) => r.status === "skipped");
+    const settledRows = taken.filter((r) => r.realizedPnl !== null);
+    const open = taken.filter((r) => r.status === "open");
+
+    const realized = settledRows.reduce((s, r) => s + (r.realizedPnl ?? 0), 0);
+    const wins = settledRows.filter((r) => (r.realizedPnl ?? 0) > 0).length;
+    const capital = CAPITAL_START + realized;
+    const committed = open.length * FLAT_STAKE;
+
+    const skipReasons = new Map<string, number>();
+    for (const s of skipped) {
+      const k = s.skipReason ?? "desconocido";
+      skipReasons.set(k, (skipReasons.get(k) ?? 0) + 1);
+    }
+
+    const exitReasons = new Map<string, number>();
+    for (const s of settledRows) {
+      const k = s.exitReason ?? "desconocido";
+      exitReasons.set(k, (exitReasons.get(k) ?? 0) + 1);
+    }
+
+    const confluent = settledRows.filter((r) => r.armConfluence > 1);
+    const solo = settledRows.filter((r) => r.armConfluence <= 1);
+    const roiOf = (list: typeof settledRows) =>
+      list.length ? list.reduce((s, r) => s + (r.realizedPnl ?? 0), 0) / (list.length * FLAT_STAKE) : null;
+
+    const slippages = taken
+      .map((r) => r.slippageCents)
+      .filter((s): s is number => s !== null)
+      .sort((a, b) => a - b);
+
+    const byCategory = new Map<string, { n: number; pnl: number; wins: number }>();
+    for (const r of settledRows) {
+      const k = r.category ?? "otros";
+      const acc = byCategory.get(k) ?? { n: 0, pnl: 0, wins: 0 };
+      acc.n += 1;
+      acc.pnl += r.realizedPnl ?? 0;
+      if ((r.realizedPnl ?? 0) > 0) acc.wins += 1;
+      byCategory.set(k, acc);
+    }
+
+    return {
+      rows,
+      open,
+      settled: settledRows,
+      capital,
+      committed,
+      freeCapital: capital - committed,
+      realized,
+      roi: settledRows.length ? realized / (settledRows.length * FLAT_STAKE) : null,
+      winRate: settledRows.length ? wins / settledRows.length : null,
+      settledCount: settledRows.length,
+      takenCount: taken.length,
+      skippedCount: skipped.length,
+      seenCount: rows.length,
+      skipReasons: [...skipReasons.entries()].sort((a, b) => b[1] - a[1]),
+      exitReasons: [...exitReasons.entries()].sort((a, b) => b[1] - a[1]),
+      medianSlippageCents: slippages.length ? slippages[Math.floor(slippages.length / 2)] : null,
+      confluence: {
+        count: confluent.length,
+        roi: roiOf(confluent),
+        soloCount: solo.length,
+        soloRoi: roiOf(solo),
+      },
+      byCategory: [...byCategory.entries()]
+        .map(([category, v]) => ({
+          category,
+          n: v.n,
+          pnl: v.pnl,
+          winRate: v.n ? v.wins / v.n : null,
+          roi: v.n ? v.pnl / (v.n * FLAT_STAKE) : null,
+        }))
+        .sort((a, b) => b.n - a.n),
+      startedAt: rows.length ? rows[rows.length - 1].openedAt : null,
+      broken: null as string | null,
+    };
+  } catch (err) {
+    return {
+      rows: [], open: [], settled: [], capital: CAPITAL_START, committed: 0,
+      freeCapital: CAPITAL_START, realized: 0, roi: null, winRate: null,
+      settledCount: 0, takenCount: 0, skippedCount: 0, seenCount: 0,
+      skipReasons: [] as [string, number][], exitReasons: [] as [string, number][],
+      medianSlippageCents: null,
+      confluence: { count: 0, roi: null, soloCount: 0, soloRoi: null },
+      byCategory: [] as { category: string; n: number; pnl: number; winRate: number | null; roi: number | null }[],
+      startedAt: null,
+      broken: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export type FastBookView = ReturnType<typeof getFastBook>;
 
 /** Everything the 🧩 Combo book needs — combo ledger only, never the others. */
 export function getComboBookStats(db: Db) {
