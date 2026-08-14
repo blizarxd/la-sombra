@@ -670,3 +670,61 @@ export const fastBook = sqliteTable(
     index("fast_book_opened_idx").on(t.openedAt),
   ],
 );
+
+// ---------------------------------------------------------------------------
+// 🚪 Exit book — forward-test of the exit-discipline finding
+// ---------------------------------------------------------------------------
+/**
+ * The strongest split found in the whole record was not about WHICH trades to
+ * enter — it was about how they END. Across 10,381 settled copies, positions
+ * closed by following the copied wallet out of the market returned +39.1%
+ * (esports +43.2%), while positions held to the oracle returned -7.8%. Same
+ * signals, opposite outcomes.
+ *
+ * That is NOT directly tradeable as stated: "trades where the wallet sold"
+ * is only knowable afterwards, so a book that admitted only those would be
+ * selecting on the future. The implementable version is an EXIT RULE — enter
+ * as the arms do, then never hold to resolution. Three ways out:
+ *   - the copied wallet sells   -> follow them (the case the finding is about)
+ *   - the price stops being in doubt -> sell into it
+ *   - neither happens in time   -> cut anyway at the market price
+ *
+ * The blend of those three IS the strategy's honest return, including the
+ * trades where the wallet never sold and the time stop had to do the work.
+ */
+export const exitBook = sqliteTable(
+  "exit_book",
+  {
+    id: text("id").primaryKey(),
+    paperTradeId: text("paper_trade_id").notNull(),
+    sourceTrack: text("source_track").notNull(),
+    marketId: text("market_id").notNull(),
+    marketQuestion: text("market_question"),
+    outcome: text("outcome"),
+    category: text("category"),
+    walletAddress: text("wallet_address"),
+    armEntryPrice: real("arm_entry_price").notNull(),
+    entryPrice: real("entry_price"),
+    slippageCents: real("slippage_cents"),
+    stake: real("stake").notNull(),
+    shares: real("shares"),
+    status: text("status", { enum: ["open", "closed", "resolved", "skipped"] })
+      .notNull()
+      .default("open"),
+    skipReason: text("skip_reason"),
+    /** "salida-billetera" | "precio-decidido" | "tiempo-agotado" | "resolucion". */
+    exitReason: text("exit_reason"),
+    /** Hours the position was actually held — the time stop's own scoreboard. */
+    heldHours: real("held_hours"),
+    armConfluence: integer("arm_confluence").notNull().default(1),
+    realizedPnl: real("realized_pnl"),
+    capitalAfter: real("capital_after"),
+    openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
+    closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("exit_book_trade_unique").on(t.paperTradeId),
+    index("exit_book_status_idx").on(t.status),
+    index("exit_book_opened_idx").on(t.openedAt),
+  ],
+);

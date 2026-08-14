@@ -4,6 +4,7 @@ import {
   aiAnalyses,
   capitalBook,
   cremaEvolution,
+  exitBook,
   fastBook,
   dailyPicks,
   dailyReports,
@@ -1006,6 +1007,114 @@ export function getFastBook(db: Db) {
 }
 
 export type FastBookView = ReturnType<typeof getFastBook>;
+
+/**
+ * 🚪 Exit book: the exit-discipline forward-test. The number that matters most
+ * here is the DOOR BREAKDOWN — how often the wallet's own sale got us out
+ * versus how often the time stop or the oracle had to. The raw finding
+ * (+39.1%) only counted the first kind; this counts all of them.
+ */
+export function getExitBook(db: Db) {
+  try {
+    const rows = db.select().from(exitBook).orderBy(desc(exitBook.openedAt)).all();
+    const taken = rows.filter((r) => r.status !== "skipped");
+    const skipped = rows.filter((r) => r.status === "skipped");
+    const settledRows = taken.filter((r) => r.realizedPnl !== null);
+    const open = taken.filter((r) => r.status === "open");
+
+    const realized = settledRows.reduce((s, r) => s + (r.realizedPnl ?? 0), 0);
+    const wins = settledRows.filter((r) => (r.realizedPnl ?? 0) > 0).length;
+    const capital = CAPITAL_START + realized;
+    const committed = open.length * FLAT_STAKE;
+
+    const skipReasons = new Map<string, number>();
+    for (const s of skipped) {
+      const k = s.skipReason ?? "desconocido";
+      skipReasons.set(k, (skipReasons.get(k) ?? 0) + 1);
+    }
+
+    // The core diagnostic: per exit door, how many and at what return.
+    const doorAgg = new Map<string, { n: number; wins: number; pnl: number; heldSum: number }>();
+    for (const r of settledRows) {
+      const k = r.exitReason ?? "desconocido";
+      const acc = doorAgg.get(k) ?? { n: 0, wins: 0, pnl: 0, heldSum: 0 };
+      acc.n += 1;
+      if ((r.realizedPnl ?? 0) > 0) acc.wins += 1;
+      acc.pnl += r.realizedPnl ?? 0;
+      acc.heldSum += r.heldHours ?? 0;
+      doorAgg.set(k, acc);
+    }
+    const doors = [...doorAgg.entries()]
+      .map(([door, v]) => ({
+        door,
+        n: v.n,
+        share: settledRows.length ? v.n / settledRows.length : 0,
+        winRate: v.n ? v.wins / v.n : null,
+        roi: v.n ? v.pnl / (v.n * FLAT_STAKE) : null,
+        pnl: v.pnl,
+        avgHeldHours: v.n ? v.heldSum / v.n : null,
+      }))
+      .sort((a, b) => b.n - a.n);
+
+    const byCategory = new Map<string, { n: number; wins: number; pnl: number }>();
+    for (const r of settledRows) {
+      const k = r.category ?? "otros";
+      const acc = byCategory.get(k) ?? { n: 0, wins: 0, pnl: 0 };
+      acc.n += 1;
+      if ((r.realizedPnl ?? 0) > 0) acc.wins += 1;
+      acc.pnl += r.realizedPnl ?? 0;
+      byCategory.set(k, acc);
+    }
+
+    const slippages = taken
+      .map((r) => r.slippageCents)
+      .filter((s): s is number => s !== null)
+      .sort((a, b) => a - b);
+
+    return {
+      rows,
+      open,
+      settled: settledRows,
+      capital,
+      committed,
+      freeCapital: capital - committed,
+      realized,
+      roi: settledRows.length ? realized / (settledRows.length * FLAT_STAKE) : null,
+      winRate: settledRows.length ? wins / settledRows.length : null,
+      settledCount: settledRows.length,
+      takenCount: taken.length,
+      skippedCount: skipped.length,
+      seenCount: rows.length,
+      skipReasons: [...skipReasons.entries()].sort((a, b) => b[1] - a[1]),
+      doors,
+      byCategory: [...byCategory.entries()]
+        .map(([category, v]) => ({
+          category,
+          n: v.n,
+          winRate: v.n ? v.wins / v.n : null,
+          roi: v.n ? v.pnl / (v.n * FLAT_STAKE) : null,
+          pnl: v.pnl,
+        }))
+        .sort((a, b) => b.n - a.n),
+      medianSlippageCents: slippages.length ? slippages[Math.floor(slippages.length / 2)] : null,
+      startedAt: rows.length ? rows[rows.length - 1].openedAt : null,
+      broken: null as string | null,
+    };
+  } catch (err) {
+    return {
+      rows: [], open: [], settled: [], capital: CAPITAL_START, committed: 0,
+      freeCapital: CAPITAL_START, realized: 0, roi: null, winRate: null,
+      settledCount: 0, takenCount: 0, skippedCount: 0, seenCount: 0,
+      skipReasons: [] as [string, number][],
+      doors: [] as { door: string; n: number; share: number; winRate: number | null; roi: number | null; pnl: number; avgHeldHours: number | null }[],
+      byCategory: [] as { category: string; n: number; winRate: number | null; roi: number | null; pnl: number }[],
+      medianSlippageCents: null, startedAt: null,
+      broken: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export type ExitBookView = ReturnType<typeof getExitBook>;
 
 /** Everything the 🧩 Combo book needs — combo ledger only, never the others. */
 export function getComboBookStats(db: Db) {

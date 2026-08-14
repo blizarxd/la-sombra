@@ -25,6 +25,7 @@ const nav = [
   { href: "/profundidad", label: "📏 Profundidad" },
   { href: "/capital", label: "💰 Libro de capital" },
   { href: "/rapidas", label: "⚡ Rápidas" },
+  { href: "/salidas", label: "🚪 Salidas" },
   { href: "/rules", label: "Reglas" },
   { href: "/recomendaciones", label: "🧠 Recomendaciones" },
   { href: "/reports", label: "Reportes" },
