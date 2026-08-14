@@ -148,6 +148,13 @@
       "when": 1785500000000,
       "tag": "0020_capital_book",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1785600000000,
+      "tag": "0021_capital_variants",
+      "breakpoints": true
     }
   ]
 }

@@ -18,8 +18,29 @@ import { fineBandKey } from "@/lib/slices";
 
 export const CAPITAL_START = 500;
 export const FLAT_STAKE = 60;
-/** Hard ceiling on positions held at the same time. */
+/** Hard ceiling on positions held at the same time (the primary book). */
 export const MAX_CONCURRENT = 3;
+
+/**
+ * The same signal stream, two bankrolls, different caps. Whether 3 slots is
+ * protective or merely slow is not answerable by argument — the looser book
+ * takes the trades the tighter one turns away, and a week later the difference
+ * is just a number. Paper costs nothing, so we run both instead of guessing.
+ */
+export const VARIANTS = [
+  { id: "c3", maxConcurrent: 3, label: "3 simultáneas" },
+  { id: "c5", maxConcurrent: 5, label: "5 simultáneas" },
+] as const;
+
+export type VariantId = (typeof VARIANTS)[number]["id"];
+
+/** Rows decided under the pre-dedup rule; kept for the record, not compared. */
+export const LEGACY_VARIANT = "legacy-sin-dedup";
+
+/** One bet per market+outcome: two arms agreeing is not two bets. */
+export function positionKey(marketId: string, outcome: string | null): string {
+  return `${marketId}::${outcome ?? ""}`;
+}
 
 /** Categories the reference strategy trades. */
 const ELIGIBLE_CATEGORIES: CategoryKey[] = ["esports", "cripto"];
@@ -98,7 +119,7 @@ export function concurrentAt(windows: OpenWindow[], t: Date): number {
 
 export type Decision =
   | { take: true; price: number; slippageCents: number }
-  | { take: false; reason: "concurrencia" | "capital" | "libro-fino" };
+  | { take: false; reason: "concurrencia" | "capital" | "libro-fino" | "duplicada" };
 
 /**
  * Decide a single signal against the rules, in the order a real account would
@@ -110,11 +131,19 @@ export function decide(params: {
   freeCapital: number;
   concurrent: number;
   depthLadderJson: string | null;
+  /** True when this exact market+outcome is already held in this book. */
+  alreadyHeld?: boolean;
   stake?: number;
   maxConcurrent?: number;
 }): Decision {
   const stake = params.stake ?? FLAT_STAKE;
   const maxConcurrent = params.maxConcurrent ?? MAX_CONCURRENT;
+  // Checked before the cap: an account already holding this bet would not buy
+  // it again regardless of how much room it had. Doubling down because two arms
+  // happened to agree concentrates the risk AND burns a slot that a different
+  // event could have used — which is exactly how three "diversified" positions
+  // quietly become two.
+  if (params.alreadyHeld) return { take: false, reason: "duplicada" };
   if (params.concurrent >= maxConcurrent) return { take: false, reason: "concurrencia" };
   if (params.freeCapital < stake) return { take: false, reason: "capital" };
   const fill = realStakeFill(params.depthLadderJson, stake);

@@ -827,9 +827,14 @@ export function getDepthStudy(db: Db) {
  * it had to turn away. The skip counts are not a footnote — they are how you
  * tell "the strategy is good" from "the rules let us trade the strategy".
  */
-export function getCapitalBook(db: Db) {
+export function getCapitalBook(db: Db, variant: string = "c3") {
   try {
-    const rows = db.select().from(capitalBook).orderBy(desc(capitalBook.openedAt)).all();
+    const rows = db
+      .select()
+      .from(capitalBook)
+      .where(eq(capitalBook.variant, variant))
+      .orderBy(desc(capitalBook.openedAt))
+      .all();
     const taken = rows.filter((r) => r.status !== "skipped");
     const skipped = rows.filter((r) => r.status === "skipped");
     const settledRows = taken.filter((r) => r.realizedPnl !== null);
@@ -846,11 +851,12 @@ export function getCapitalBook(db: Db) {
       skipReasons.set(k, (skipReasons.get(k) ?? 0) + 1);
     }
 
-    // Curve in chronological order, seeded at the starting bankroll so the
-    // chart shows the whole journey rather than starting at the first win.
-    const curve = [...settledRows]
-      .sort((a, b) => (a.closedAt?.getTime() ?? 0) - (b.closedAt?.getTime() ?? 0))
-      .map((r) => ({ at: r.closedAt, capital: r.capitalAfter ?? null }));
+    // Does agreement between arms predict a better result? Only answerable once
+    // the confluent positions settle, so it is reported as it fills in.
+    const confluent = settledRows.filter((r) => r.armConfluence > 1);
+    const solo = settledRows.filter((r) => r.armConfluence <= 1);
+    const roiOf = (list: typeof settledRows) =>
+      list.length ? list.reduce((s, r) => s + (r.realizedPnl ?? 0), 0) / (list.length * FLAT_STAKE) : null;
 
     const slippages = taken
       .map((r) => r.slippageCents)
@@ -858,6 +864,7 @@ export function getCapitalBook(db: Db) {
       .sort((a, b) => a - b);
 
     return {
+      variant,
       rows,
       open,
       settled: settledRows,
@@ -873,21 +880,29 @@ export function getCapitalBook(db: Db) {
       seenCount: rows.length,
       skipReasons: [...skipReasons.entries()].sort((a, b) => b[1] - a[1]),
       medianSlippageCents: slippages.length ? slippages[Math.floor(slippages.length / 2)] : null,
-      curve,
+      confluence: {
+        count: confluent.length,
+        roi: roiOf(confluent),
+        soloCount: solo.length,
+        soloRoi: roiOf(solo),
+      },
       startedAt: rows.length ? rows[rows.length - 1].openedAt : null,
       broken: null as string | null,
     };
   } catch (err) {
     return {
-      rows: [], open: [], settled: [], capital: CAPITAL_START, committed: 0,
+      variant, rows: [], open: [], settled: [], capital: CAPITAL_START, committed: 0,
       freeCapital: CAPITAL_START, realized: 0, roi: null, winRate: null,
       settledCount: 0, takenCount: 0, skippedCount: 0, seenCount: 0,
       skipReasons: [] as [string, number][], medianSlippageCents: null,
-      curve: [] as { at: Date | null; capital: number | null }[], startedAt: null,
+      confluence: { count: 0, roi: null, soloCount: 0, soloRoi: null },
+      startedAt: null,
       broken: err instanceof Error ? err.message : String(err),
     };
   }
 }
+
+export type CapitalBookView = ReturnType<typeof getCapitalBook>;
 
 /** Everything the 🧩 Combo book needs — combo ledger only, never the others. */
 export function getComboBookStats(db: Db) {

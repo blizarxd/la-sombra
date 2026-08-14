@@ -557,8 +557,22 @@ export const capitalBook = sqliteTable(
   "capital_book",
   {
     id: text("id").primaryKey(),
-    /** The underlying arm copy this mirrors. Unique: never mirror one twice. */
+    /**
+     * Which bankroll this belongs to: "c3" and "c5" run the SAME signal stream
+     * under different concurrency caps, so the cost of the cap is measured
+     * rather than argued. "legacy-sin-dedup" parks rows decided under the older
+     * rule that let two arms take two slots on one market.
+     */
+    variant: text("variant").notNull().default("c3"),
+    /** The underlying arm copy this mirrors. One per variant, never twice. */
     paperTradeId: text("paper_trade_id").notNull(),
+    /**
+     * How many arms independently copied this same market+outcome. A real
+     * account buys the bet once, so extra arms add no stake — but whether
+     * agreement predicts a better result is worth knowing, so it is counted
+     * instead of discarded.
+     */
+    armConfluence: integer("arm_confluence").notNull().default(1),
     sourceTrack: text("source_track").notNull(),
     marketId: text("market_id").notNull(),
     marketQuestion: text("market_question"),
@@ -575,7 +589,7 @@ export const capitalBook = sqliteTable(
     status: text("status", { enum: ["open", "closed", "resolved", "skipped"] })
       .notNull()
       .default("open"),
-    /** Why a signal was NOT taken: "concurrencia", "capital" or "libro-fino". */
+    /** Why a signal was NOT taken: "concurrencia", "capital", "libro-fino" or "duplicada". */
     skipReason: text("skip_reason"),
     realizedPnl: real("realized_pnl"),
     /** Bankroll AFTER this entry settled — the curve, precomputed. */
@@ -584,7 +598,7 @@ export const capitalBook = sqliteTable(
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
   },
   (t) => [
-    uniqueIndex("capital_book_trade_unique").on(t.paperTradeId),
+    uniqueIndex("capital_book_variant_trade_unique").on(t.variant, t.paperTradeId),
     index("capital_book_status_idx").on(t.status),
     index("capital_book_opened_idx").on(t.openedAt),
   ],

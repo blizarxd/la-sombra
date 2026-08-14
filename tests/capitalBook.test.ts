@@ -4,6 +4,7 @@ import {
   concurrentAt,
   decide,
   isEligible,
+  positionKey,
   realStakeFill,
   settledPnl,
 } from "@/lib/capitalBook";
@@ -100,5 +101,34 @@ describe("PnL on the flat stake", () => {
   it("makes a worse entry produce a worse result on the same exit", () => {
     // The whole reason we price off the ladder: slippage must actually cost.
     expect(settledPnl(0.58, 60, 1)).toBeGreaterThan(settledPnl(0.59, 60, 1));
+  });
+});
+
+describe("dedup: one bet per market, agreement counted not doubled", () => {
+  const ok = { freeCapital: 500, concurrent: 0, depthLadderJson: deepBook };
+
+  it("refuses a second position on a bet already held", () => {
+    // Two arms copying one match is agreement, not two opportunities.
+    expect(decide({ ...ok, alreadyHeld: true })).toEqual({ take: false, reason: "duplicada" });
+  });
+
+  it("checks the duplicate before the cap, so the reason is the real one", () => {
+    // With room to spare it must still say "duplicada", not "concurrencia".
+    expect(decide({ ...ok, alreadyHeld: true, concurrent: 0 })).toEqual({ take: false, reason: "duplicada" });
+  });
+
+  it("still blocks a duplicate when the book is also full", () => {
+    expect(decide({ ...ok, alreadyHeld: true, concurrent: 5 })).toEqual({ take: false, reason: "duplicada" });
+  });
+
+  it("keys a position by market AND outcome — opposite sides are distinct bets", () => {
+    expect(positionKey("m1", "Yes")).not.toBe(positionKey("m1", "No"));
+    expect(positionKey("m1", "Yes")).toBe(positionKey("m1", "Yes"));
+  });
+
+  it("honours a per-variant cap so the 3 and 5 books diverge", () => {
+    const four = { ...ok, concurrent: 4 };
+    expect(decide({ ...four, maxConcurrent: 3 })).toEqual({ take: false, reason: "concurrencia" });
+    expect(decide({ ...four, maxConcurrent: 5 }).take).toBe(true);
   });
 });
