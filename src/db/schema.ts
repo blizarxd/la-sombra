@@ -591,6 +591,13 @@ export const capitalBook = sqliteTable(
       .default("open"),
     /** Why a signal was NOT taken: "concurrencia", "capital", "libro-fino" or "duplicada". */
     skipReason: text("skip_reason"),
+    /**
+     * How the position ENDED: "resolucion" (held to the oracle), "salida-brazo"
+     * (the copied wallet sold) or "venta-anticipada" (sold once the price left
+     * no real doubt). The last one matters because capital parked in a decided
+     * market earns nothing and blocks the slot a live signal needed.
+     */
+    exitReason: text("exit_reason"),
     realizedPnl: real("realized_pnl"),
     /** Bankroll AFTER this entry settled — the curve, precomputed. */
     capitalAfter: real("capital_after"),

@@ -3,6 +3,7 @@ import {
   armExitPrice,
   concurrentAt,
   decide,
+  isDecided,
   isEligible,
   positionKey,
   realStakeFill,
@@ -130,5 +131,40 @@ describe("dedup: one bet per market, agreement counted not doubled", () => {
     const four = { ...ok, concurrent: 4 };
     expect(decide({ ...four, maxConcurrent: 3 })).toEqual({ take: false, reason: "concurrencia" });
     expect(decide({ ...four, maxConcurrent: 5 }).take).toBe(true);
+  });
+});
+
+describe("early exit once the market has decided", () => {
+  it("treats a near-certain winner as decided", () => {
+    // The game is over; only the oracle is late. Capital parked here earns
+    // nothing and blocks a slot a live signal needed.
+    expect(isDecided(0.99)).toBe(true);
+    expect(isDecided(0.97)).toBe(true);
+  });
+
+  it("treats a near-certain loser as decided too", () => {
+    // Cutting a dead position is the same slot-freeing decision as a win.
+    expect(isDecided(0.01)).toBe(true);
+    expect(isDecided(0.03)).toBe(true);
+  });
+
+  it("leaves genuinely uncertain positions alone", () => {
+    expect(isDecided(0.5)).toBe(false);
+    expect(isDecided(0.9)).toBe(false);
+    expect(isDecided(0.1)).toBe(false);
+  });
+
+  it("never fires on a position with no price yet", () => {
+    expect(isDecided(null)).toBe(false);
+    expect(isDecided(undefined)).toBe(false);
+  });
+
+  it("books the sale at the market price, not at a full payout", () => {
+    // Selling the 98c ticket is NOT the same as being paid $1: pretending
+    // otherwise would invent ~$1.20 of profit per position out of nothing.
+    const soldAt98 = settledPnl(0.58, 60, 0.98);
+    const paidInFull = settledPnl(0.58, 60, 1);
+    expect(soldAt98).toBeLessThan(paidInFull);
+    expect(soldAt98).toBeCloseTo((60 / 0.58) * 0.98 - 60, 6);
   });
 });

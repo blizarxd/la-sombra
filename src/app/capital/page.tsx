@@ -13,6 +13,12 @@ const SKIP_LABEL: Record<string, string> = {
   duplicada: "ya teníamos esa misma apuesta",
 };
 
+const EXIT_LABEL: Record<string, string> = {
+  resolucion: "esperó al oráculo",
+  "salida-brazo": "la billetera vendió",
+  "venta-anticipada": "vendida ya decidida",
+};
+
 const STATUS_LABEL: Record<string, { text: string; className: string }> = {
   open: { text: "⏳ abierta", className: "text-mist" },
   resolved: { text: "✅ resuelta", className: "text-bright" },
@@ -218,6 +224,7 @@ export default function CapitalPage() {
                           {r.status === "skipped" && r.skipReason
                             ? ` · ${SKIP_LABEL[r.skipReason] ?? r.skipReason}`
                             : ""}
+                          {r.exitReason ? ` · ${EXIT_LABEL[r.exitReason] ?? r.exitReason}` : ""}
                         </div>
                       </Td>
                       <Td className="text-mist">{r.sourceTrack}</Td>

@@ -7,6 +7,7 @@ import {
   armExitPrice,
   concurrentAt,
   decide,
+  isDecided,
   isEligible,
   positionKey,
   settledPnl,
@@ -44,6 +45,7 @@ runScript("capital-book-tick", async (db) => {
   // ---- 1. Settle entries whose underlying copy has finished --------------
   const openEntries = db.select().from(capitalBook).where(eq(capitalBook.status, "open")).all();
   let settled = 0;
+  let earlyExits = 0;
   if (openEntries.length) {
     const underlying = db
       .select()
@@ -53,12 +55,33 @@ runScript("capital-book-tick", async (db) => {
     const byId = new Map(underlying.map((t) => [t.id, t]));
     for (const entry of openEntries) {
       const t = byId.get(entry.paperTradeId);
-      if (!t || t.status === "open") continue;
+      if (!t || entry.entryPrice === null) continue;
+
+      if (t.status === "open") {
+        // The arm holds to the oracle; we do not. Once the price leaves no real
+        // doubt the position is just parked capital blocking a slot, and it can
+        // be sold at the current bid — so book it at that bid and free the slot.
+        if (!isDecided(t.currentPrice)) continue;
+        db.update(capitalBook)
+          .set({
+            status: "closed",
+            exitReason: "venta-anticipada",
+            realizedPnl: settledPnl(entry.entryPrice, entry.stake, t.currentPrice as number),
+            closedAt: new Date(),
+          })
+          .where(eq(capitalBook.id, entry.id))
+          .run();
+        earlyExits += 1;
+        settled += 1;
+        continue;
+      }
+
       const exit = armExitPrice(t);
-      if (exit === null || entry.entryPrice === null) continue;
+      if (exit === null) continue;
       db.update(capitalBook)
         .set({
           status: t.status === "resolved" ? "resolved" : "closed",
+          exitReason: t.status === "resolved" ? "resolucion" : "salida-brazo",
           realizedPnl: settledPnl(entry.entryPrice, entry.stake, exit),
           closedAt: t.resolvedAt ?? t.closedAt ?? new Date(),
         })
@@ -198,5 +221,5 @@ runScript("capital-book-tick", async (db) => {
     );
   }
 
-  log.info(`capital book: ${settled} liquidados en total`);
+  log.info(`capital book: ${settled} liquidados en total (${earlyExits} por venta anticipada)`);
 });

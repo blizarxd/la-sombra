@@ -37,6 +37,24 @@ export type VariantId = (typeof VARIANTS)[number]["id"];
 /** Rows decided under the pre-dedup rule; kept for the record, not compared. */
 export const LEGACY_VARIANT = "legacy-sin-dedup";
 
+/**
+ * Prices at which the outcome is no longer in real doubt.
+ *
+ * Polymarket's oracle settles well after the game is decided, and a paper book
+ * that waits for it keeps capital parked in a market with nothing left to
+ * learn. A real trader sells the 98¢ ticket and redeploys. That matters here
+ * beyond realism: with signals arriving faster than positions close, a slot
+ * held by a finished game is a live signal turned away.
+ */
+export const NEAR_CERTAIN_HIGH = 0.97;
+export const NEAR_CERTAIN_LOW = 0.03;
+
+/** True when the market has effectively decided, whichever way it went. */
+export function isDecided(currentPrice: number | null | undefined): boolean {
+  if (currentPrice === null || currentPrice === undefined) return false;
+  return currentPrice >= NEAR_CERTAIN_HIGH || currentPrice <= NEAR_CERTAIN_LOW;
+}
+
 /** One bet per market+outcome: two arms agreeing is not two bets. */
 export function positionKey(marketId: string, outcome: string | null): string {
   return `${marketId}::${outcome ?? ""}`;
