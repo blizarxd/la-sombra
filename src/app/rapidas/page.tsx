@@ -1,6 +1,6 @@
 import { getDb } from "@/db/client";
 import { CATEGORY_LABELS, type CategoryKey } from "@/lib/category";
-import { CAPITAL_START, FAST_RESOLVE_HOURS, FLAT_STAKE, MAX_CONCURRENT } from "@/lib/fastBook";
+import { CAPITAL_START, FLAT_STAKE, MAX_CONCURRENT } from "@/lib/fastBook";
 import { money, when } from "@/lib/format";
 import { getFastBook } from "@/lib/queries";
 import { Card, PnlText, Stat, Table, Td, Th } from "../components/ui";
@@ -52,13 +52,22 @@ export default function RapidasPage() {
             /capital
           </a>{" "}
           hace con la banda de precio: un banco simulado de ${CAPITAL_START}, ${FLAT_STAKE} plano, una apuesta por
-          mercado, precio de entrada medido para el tamaño real. La selección usa la duración{" "}
-          <strong>esperada al momento de copiar</strong> (fecha de cierre programada del mercado menos ahora) — nunca
-          cuánto tardó de verdad en resolver, que solo se sabe después y no serviría para elegir nada.
+          mercado, precio de entrada medido para el tamaño real.
+        </p>
+        <p className="mt-2 max-w-3xl text-sm text-mist">
+          <strong className="text-bright">Cómo se elige, y por qué cambió:</strong> el plan original era usar la fecha
+          de cierre programada de Polymarket para saber si un mercado resolvería en menos de 1h. En producción esa
+          fecha resultó ser poco fiable — solo el 15% de las copias la traían, y la mayoría de esas mostraban valores
+          sin sentido (mercados "ya vencidos" hace 19 horas, u otros a 6 días de resolver). Así que en vez de una
+          fecha, esta página clasifica por el <strong>formato del mercado</strong>: un mapa o juego suelto dentro de
+          una serie (&quot;Map 1 Winner&quot;, &quot;Game 2 Winner&quot;) o un tramo partido de un partido
+          (&quot;al descanso&quot;, &quot;1er cuarto&quot;) — nunca la serie completa ni el resultado del partido
+          entero, que sí tarda horas. Es menos preciso que una fecha real, pero está disponible en el 100% de los
+          casos en vez del 15%.
         </p>
         <p className="mt-2 max-w-3xl text-xs text-mist">
-          Elegibilidad: Esports + Deportes, duración esperada ≤ {FAST_RESOLVE_HOURS}h, todos los brazos menos La Crema.
-          Solo papel — aquí no se envía ninguna orden.
+          Elegibilidad: Esports + Deportes, formato de resolución rápida, todos los brazos menos La Crema. Solo papel —
+          aquí no se envía ninguna orden.
         </p>
       </div>
 
@@ -194,7 +203,7 @@ export default function RapidasPage() {
               <tr>
                 <Th>Abierta</Th>
                 <Th>Mercado</Th>
-                <Th>Duración esp.</Th>
+                <Th>Fecha Polymarket*</Th>
                 <Th>Brazo</Th>
                 <Th>Nuestra entrada</Th>
                 <Th>Estado</Th>
@@ -218,7 +227,7 @@ export default function RapidasPage() {
                       </div>
                     </Td>
                     <Td className="text-mist">
-                      {r.expectedResolutionHours === null ? "—" : `${(r.expectedResolutionHours * 60).toFixed(0)} min`}
+                      {r.expectedResolutionHours === null ? "—" : `${r.expectedResolutionHours.toFixed(1)}h`}
                     </Td>
                     <Td className="text-mist">{r.sourceTrack}</Td>
                     <Td>
@@ -242,18 +251,23 @@ export default function RapidasPage() {
             </tbody>
           </Table>
         )}
+        <p className="mt-2 text-xs text-mist">
+          *Fecha de cierre que reporta Polymarket, mostrada solo como referencia — no es lo que decide si una señal
+          entra aquí (ver más abajo por qué).
+        </p>
       </Card>
 
       <Card title="Límites honestos de este libro">
         <ul className="space-y-2 text-sm text-mist">
           <li>
-            <strong className="text-bright">La duración esperada no es garantía.</strong> Un partido "Map 1 Winner"
-            programado en 40 minutos puede irse a penales, retrasarse o entrar en pausa técnica. El libro elige por lo
-            que se sabía AL ENTRAR, no por lo que pasó después.
+            <strong className="text-bright">El formato es una aproximación, no una garantía.</strong> "Map 1 Winner"
+            normalmente resuelve rápido, pero puede alargarse por pausa técnica, retraso o disputa. Es más fiable que
+            la fecha de Polymarket (que resultó casi inútil), pero sigue siendo una regla de texto, no un reloj.
           </li>
           <li>
-            <strong className="text-bright">Empieza hoy, en cero.</strong> No hay atajo retroactivo honesto aquí: la
-            duración esperada solo se guarda desde que se desplegó esta página.
+            <strong className="text-bright">Empieza hoy, en cero.</strong> Este libro arrancó de nuevo al cambiar el
+            criterio de selección — no hay atajo retroactivo honesto con el criterio anterior, que casi nunca
+            calificaba nada.
           </li>
           <li>
             <strong className="text-bright">La salida no está medida.</strong> Igual que en /capital, la entrada se

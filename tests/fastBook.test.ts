@@ -1,40 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { FAST_RESOLVE_HOURS, isEligible } from "@/lib/fastBook";
+import { isEligible } from "@/lib/fastBook";
 
 describe("fastBook isEligible", () => {
-  const base = {
-    track: "core",
-    marketQuestion: "LoL: Shifters vs SK Gaming - Game 2 Winner",
-    expectedResolutionHours: 0.5,
-  };
+  const base = { track: "core", marketQuestion: "LoL: Shifters vs SK Gaming - Game 2 Winner" };
 
-  it("takes esports scheduled inside the fast window", () => {
+  it("takes an esports sub-map/game market", () => {
     expect(isEligible(base)).toBe(true);
   });
 
-  it("takes deportes scheduled inside the fast window", () => {
-    expect(isEligible({ ...base, marketQuestion: "Lakers vs Celtics" })).toBe(true);
+  it("takes a deportes split-period market", () => {
+    // "Draw at halftime?" alone has no team/league keyword, so categorizeMarket
+    // files it under "otros", not "deportes" — the "vs." is what makes it sport.
+    expect(isEligible({ ...base, marketQuestion: "AS Saint-Étienne vs. Clermont Foot 63: Draw at halftime?" })).toBe(
+      true,
+    );
   });
 
   it("rejects cripto — the matrix showed its <1h cell was too weak (+0.5%)", () => {
     expect(isEligible({ ...base, marketQuestion: "Bitcoin Up or Down - 3PM" })).toBe(false);
   });
 
-  it("rejects a market scheduled past the fast window", () => {
-    expect(isEligible({ ...base, expectedResolutionHours: FAST_RESOLVE_HOURS + 0.01 })).toBe(false);
+  it("rejects an esports market that is NOT a fast sub-format (the full series)", () => {
+    expect(
+      isEligible({ ...base, marketQuestion: "Dota 2: Nigma Galaxy vs Vici Gaming (BO3) - The International" }),
+    ).toBe(false);
   });
 
-  it("accepts right at the boundary", () => {
-    expect(isEligible({ ...base, expectedResolutionHours: FAST_RESOLVE_HOURS })).toBe(true);
-  });
-
-  it("rejects when the scheduled end is unknown", () => {
-    expect(isEligible({ ...base, expectedResolutionHours: null })).toBe(false);
-  });
-
-  it("rejects a scheduled end already in the past — stale metadata, not a fast market", () => {
-    expect(isEligible({ ...base, expectedResolutionHours: -0.1 })).toBe(false);
-    expect(isEligible({ ...base, expectedResolutionHours: 0 })).toBe(false);
+  it("rejects a deportes market that is a full-match outcome, not a split period", () => {
+    expect(isEligible({ ...base, marketQuestion: "St. Louis Cardinals vs. Chicago Cubs" })).toBe(false);
   });
 
   it("rejects La Crema, whose copies mirror the other arms", () => {
