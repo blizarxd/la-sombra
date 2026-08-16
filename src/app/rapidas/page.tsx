@@ -71,6 +71,19 @@ export default function RapidasPage() {
         </p>
       </div>
 
+      <Card title="🛑 Libro pausado — 15-ago-2026">
+        <p className="text-sm text-loss">
+          Este libro cayó de $500 a ~$21 (−96%) antes de pausarse. Los datos en vivo confirmaron lo que la
+          descomposición histórica ya advertía: el clasificador de texto (&quot;Map 1 Winner&quot;) compra en su
+          mayoría mercados <strong>horas antes</strong> de que el evento rápido de verdad empiece, no mientras ocurre —
+          la misma población que en el histórico perdía −5,2%.
+        </p>
+        <p className="mt-2 text-sm text-mist">
+          No se toman señales nuevas. Lo que ya estaba abierto se sigue liquidando con normalidad, así que el historial
+          de abajo queda completo como registro del experimento.
+        </p>
+      </Card>
+
       {b.broken ? (
         <Card title="⚠️ El libro no está registrando">
           <p className="text-sm text-loss">

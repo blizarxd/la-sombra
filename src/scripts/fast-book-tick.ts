@@ -77,16 +77,27 @@ runScript("fast-book-tick", async (db) => {
     }
   }
 
+  // 🛑 PAUSED 2026-08-15: live data confirmed what the historical decomposition
+  // already warned about — the text-format classifier ("Map 1 Winner") mostly
+  // buys markets hours before the fast sub-event actually starts, not while it
+  // is happening. This book fell from $500 to ~$21 (-96%) before the pause,
+  // matching the historical population it was built on (which itself lost
+  // -5.2%). Taking new signals is stopped; existing entries below still settle
+  // normally so nothing is left dangling. See /rapidas for the full postmortem.
+  const PAUSED = true;
+
   const seen = new Set(
     db.select({ paperTradeId: fastBook.paperTradeId }).from(fastBook).all().map((r) => r.paperTradeId),
   );
-  const candidates = db
-    .select()
-    .from(paperTrades)
-    .where(ne(paperTrades.track, "elite"))
-    .orderBy(asc(paperTrades.openedAt))
-    .all()
-    .filter((t) => !seen.has(t.id) && t.depthLadderJson !== null && isEligible(t));
+  const candidates = PAUSED
+    ? []
+    : db
+        .select()
+        .from(paperTrades)
+        .where(ne(paperTrades.track, "elite"))
+        .orderBy(asc(paperTrades.openedAt))
+        .all()
+        .filter((t) => !seen.has(t.id) && t.depthLadderJson !== null && isEligible(t));
 
   let taken = 0;
   let confluences = 0;
