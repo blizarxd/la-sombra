@@ -37,6 +37,7 @@ import { isCryptoBookEligible } from "./profiler";
 import { getActiveRules } from "./rules";
 import { projectOpenByWindow } from "./projection";
 import { buildAllMatrices, type SettledTrade } from "./slices";
+import { edgeStats } from "./stats";
 
 /** Shared read-model helpers used by the dashboard pages and reports. */
 
@@ -866,6 +867,30 @@ export function getCapitalBook(db: Db, variant: string = "c3") {
       .filter((s): s is number => s !== null)
       .sort((a, b) => a - b);
 
+    // Per category, WITH the confidence floor. A category showing +50% on five
+    // trades is noise wearing a nice number, and this book has already been
+    // fooled once that way — the floor is what separates the two on sight.
+    const catRois = new Map<string, number[]>();
+    for (const r of settledRows) {
+      const k = r.category ?? "otros";
+      const list = catRois.get(k) ?? [];
+      list.push((r.realizedPnl ?? 0) / r.stake);
+      catRois.set(k, list);
+    }
+    const catBreakdown = [...catRois.entries()]
+      .map(([category, rois]) => {
+        const st = edgeStats(rois, Math.max(1, catRois.size));
+        return {
+          category,
+          n: st.n,
+          roi: st.roi,
+          winRate: st.winRate,
+          lcb: st.lcb,
+          pnl: rois.reduce((a, b) => a + b, 0) * FLAT_STAKE,
+        };
+      })
+      .sort((a, b) => b.n - a.n);
+
     return {
       variant,
       rows,
@@ -889,6 +914,7 @@ export function getCapitalBook(db: Db, variant: string = "c3") {
         soloCount: solo.length,
         soloRoi: roiOf(solo),
       },
+      byCategory: catBreakdown,
       startedAt: rows.length ? rows[rows.length - 1].openedAt : null,
       broken: null as string | null,
     };
@@ -899,6 +925,7 @@ export function getCapitalBook(db: Db, variant: string = "c3") {
       settledCount: 0, takenCount: 0, skippedCount: 0, seenCount: 0,
       skipReasons: [] as [string, number][], medianSlippageCents: null,
       confluence: { count: 0, roi: null, soloCount: 0, soloRoi: null },
+      byCategory: [] as { category: string; n: number; roi: number; winRate: number; lcb: number | null; pnl: number }[],
       startedAt: null,
       broken: err instanceof Error ? err.message : String(err),
     };

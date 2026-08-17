@@ -1,5 +1,6 @@
 import { getDb } from "@/db/client";
 import { CAPITAL_START, FLAT_STAKE, VARIANTS } from "@/lib/capitalBook";
+import { CATEGORY_LABELS, type CategoryKey } from "@/lib/category";
 import { money, when } from "@/lib/format";
 import { getCapitalBook, type CapitalBookView } from "@/lib/queries";
 import { Card, PnlText, Stat, Table, Td, Th } from "../components/ui";
@@ -146,6 +147,55 @@ export default function CapitalPage() {
           que puede acabar más arriba <em>y aun así</em> ser peor por apuesta.
         </p>
       </div>
+
+      <Card title="🏷️ Qué categoría gana de verdad">
+        <p className="mb-3 text-sm text-mist">
+          Desglose del libro de {books[1].v.maxConcurrent} cupos (el que más operaciones acumula). La columna que manda
+          es <strong className="text-bright">PISO</strong>, no el ROI: es lo peor que plausiblemente vale la celda una
+          vez descontado el tamaño de muestra. Una categoría con ROI alto y piso negativo{" "}
+          <strong>todavía no ha demostrado nada</strong> — es exactamente así como este proyecto se engañó antes.
+        </p>
+        {books[1].book.byCategory.length === 0 ? (
+          <p className="text-sm text-mist">Todavía sin operaciones liquidadas.</p>
+        ) : (
+          <Table>
+            <thead>
+              <tr>
+                <Th>Categoría</Th>
+                <Th>n</Th>
+                <Th>Acierto</Th>
+                <Th>ROI</Th>
+                <Th>Piso 90%</Th>
+                <Th>PnL</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {books[1].book.byCategory.map((c) => (
+                <tr key={c.category}>
+                  <Td className="text-bright">{CATEGORY_LABELS[c.category as CategoryKey] ?? c.category}</Td>
+                  <Td className="text-mist">{c.n}</Td>
+                  <Td className="text-mist">{pct(c.winRate, 0)}</Td>
+                  <Td className={c.roi > 0 ? "text-profit" : "text-loss"}>{pct(c.roi, 1)}</Td>
+                  <Td
+                    className={
+                      c.lcb === null ? "text-mist" : c.lcb > 0 ? "font-semibold text-profit" : "text-loss"
+                    }
+                  >
+                    {c.lcb === null ? "n muy bajo" : pct(c.lcb, 1)}
+                  </Td>
+                  <Td>
+                    <PnlText value={c.pnl} />
+                  </Td>
+                </tr>
+              ))}
+            </tbody>
+          </Table>
+        )}
+        <p className="mt-3 text-xs text-mist">
+          Un piso positivo significa que, incluso siendo pesimistas con la muestra, la celda sigue ganando. Es el único
+          criterio que ha aguantado escrutinio en todo el proyecto.
+        </p>
+      </Card>
 
       <Card title="🔗 ¿Sirve de algo que dos brazos coincidan?">
         <p className="mb-3 text-sm text-mist">
