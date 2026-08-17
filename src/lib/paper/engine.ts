@@ -274,7 +274,18 @@ export function markPaperTrade(
   if (exitValue === null || price === null) return null;
   const unrealizedPnl = exitValue - trade.simulatedPositionSize;
   db.update(paperTrades)
-    .set({ currentPrice: price, unrealizedPnl })
+    .set({
+      currentPrice: price,
+      unrealizedPnl,
+      // 📉 SELL SIDE, kept fresh at every mark. The depth ladder proves a book
+      // can ABSORB a real buy; nothing until now checked it can absorb the
+      // matching SELL. A book of capital simulations that prices entries
+      // honestly and exits at the touch is flattering itself exactly where a
+      // real account would bleed. Stored as raw levels rather than a fixed
+      // ladder because the share count to unwind depends on the book doing the
+      // unwinding, and each one holds a different size.
+      bidLevelsJson: JSON.stringify(book.bids.slice(0, 15)),
+    })
     .where(eq(paperTrades.id, trade.id))
     .run();
   db.insert(pnlSnapshots)

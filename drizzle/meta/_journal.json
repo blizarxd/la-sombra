@@ -183,6 +183,20 @@
       "when": 1786000000000,
       "tag": "0025_exit_book",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "6",
+      "when": 1786100000000,
+      "tag": "0026_bid_levels",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "6",
+      "when": 1786200000000,
+      "tag": "0027_cripto_book",
+      "breakpoints": true
     }
   ]
 }

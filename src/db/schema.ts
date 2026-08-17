@@ -257,6 +257,13 @@ export const paperTrades = sqliteTable(
      * any market with no published end date.
      */
     expectedResolutionHours: real("expected_resolution_hours"),
+    /**
+     * 📉 Top bid levels at the most recent mark, so an exit can be priced by
+     * walking the SELL side for the real share count instead of assuming the
+     * touch absorbs everything. Refreshed each mark; null before the position
+     * has ever been marked.
+     */
+    bidLevelsJson: text("bid_levels_json"),
     openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
     closedAt: integer("closed_at", { mode: "timestamp_ms" }),
     resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }),
@@ -648,6 +655,13 @@ export const fastBook = sqliteTable(
     outcome: text("outcome"),
     category: text("category"),
     expectedResolutionHours: real("expected_resolution_hours"),
+    /**
+     * 📉 Top bid levels at the most recent mark, so an exit can be priced by
+     * walking the SELL side for the real share count instead of assuming the
+     * touch absorbs everything. Refreshed each mark; null before the position
+     * has ever been marked.
+     */
+    bidLevelsJson: text("bid_levels_json"),
     armEntryPrice: real("arm_entry_price").notNull(),
     entryPrice: real("entry_price"),
     slippageCents: real("slippage_cents"),
@@ -726,5 +740,56 @@ export const exitBook = sqliteTable(
     uniqueIndex("exit_book_trade_unique").on(t.paperTradeId),
     index("exit_book_status_idx").on(t.status),
     index("exit_book_opened_idx").on(t.openedAt),
+  ],
+);
+
+// ---------------------------------------------------------------------------
+// ₿ Cripto book — the one entry filter with a positive floor (see criptoBook.ts)
+// ---------------------------------------------------------------------------
+/**
+ * Crypto-only, priced honestly on BOTH sides: entry from the measured ask-side
+ * depth ladder, exit by walking the recorded bid side for the real share count.
+ * Every earlier book flattered its exits by assuming the touch absorbed the
+ * whole position; this one records what the sell would actually have paid, and
+ * says so when it cannot tell.
+ */
+export const criptoBook = sqliteTable(
+  "cripto_book",
+  {
+    id: text("id").primaryKey(),
+    paperTradeId: text("paper_trade_id").notNull(),
+    sourceTrack: text("source_track").notNull(),
+    marketId: text("market_id").notNull(),
+    marketQuestion: text("market_question"),
+    outcome: text("outcome"),
+    walletAddress: text("wallet_address"),
+    armEntryPrice: real("arm_entry_price").notNull(),
+    entryPrice: real("entry_price"),
+    slippageCents: real("slippage_cents"),
+    stake: real("stake").notNull(),
+    shares: real("shares"),
+    status: text("status", { enum: ["open", "closed", "resolved", "skipped"] })
+      .notNull()
+      .default("open"),
+    skipReason: text("skip_reason"),
+    exitReason: text("exit_reason"),
+    /** Price actually achieved on the way out, after walking the bid side. */
+    exitPrice: real("exit_price"),
+    /**
+     * Cents lost to depth on the SELL, vs what the touch price would have
+     * pretended. Null when no sell-side snapshot was available.
+     */
+    exitSlippageCents: real("exit_slippage_cents"),
+    heldHours: real("held_hours"),
+    armConfluence: integer("arm_confluence").notNull().default(1),
+    realizedPnl: real("realized_pnl"),
+    capitalAfter: real("capital_after"),
+    openedAt: integer("opened_at", { mode: "timestamp_ms" }).notNull(),
+    closedAt: integer("closed_at", { mode: "timestamp_ms" }),
+  },
+  (t) => [
+    uniqueIndex("cripto_book_trade_unique").on(t.paperTradeId),
+    index("cripto_book_status_idx").on(t.status),
+    index("cripto_book_opened_idx").on(t.openedAt),
   ],
 );

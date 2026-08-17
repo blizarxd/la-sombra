@@ -58,6 +58,9 @@ async function main() {
   // 🚪 exit book: tests exit DISCIPLINE (never hold to the oracle) rather than
   // any entry filter. Must run after paper-update-pnl so current prices are fresh.
   step("exit-book-tick.ts");
+  // ₿ cripto book: the one entry filter with a positive floor, and the first
+  // book to price its EXITS by walking the bid side rather than the touch.
+  step("cripto-book-tick.ts");
   step("review-outcomes.ts");
   // 🎯 Settle published picks here, not only on the daily cut. A game that ends
   // at 22:00 was sitting unresolved on the public record until the next morning,

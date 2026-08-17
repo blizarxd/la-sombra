@@ -26,6 +26,7 @@ const nav = [
   { href: "/capital", label: "💰 Libro de capital" },
   { href: "/rapidas", label: "⚡ Rápidas" },
   { href: "/salidas", label: "🚪 Salidas" },
+  { href: "/cripto-libro", label: "₿ Libro Cripto" },
   { href: "/rules", label: "Reglas" },
   { href: "/recomendaciones", label: "🧠 Recomendaciones" },
   { href: "/reports", label: "Reportes" },

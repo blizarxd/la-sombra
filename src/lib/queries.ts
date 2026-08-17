@@ -4,6 +4,7 @@ import {
   aiAnalyses,
   capitalBook,
   cremaEvolution,
+  criptoBook,
   exitBook,
   fastBook,
   dailyPicks,
@@ -1115,6 +1116,92 @@ export function getExitBook(db: Db) {
 }
 
 export type ExitBookView = ReturnType<typeof getExitBook>;
+
+/** ₿ Cripto book: crypto-only entries, exits priced by walking the bid side. */
+export function getCriptoBook(db: Db) {
+  try {
+    const rows = db.select().from(criptoBook).orderBy(desc(criptoBook.openedAt)).all();
+    const taken = rows.filter((r) => r.status !== "skipped");
+    const skipped = rows.filter((r) => r.status === "skipped");
+    const settledRows = taken.filter((r) => r.realizedPnl !== null);
+    const open = taken.filter((r) => r.status === "open");
+
+    const realized = settledRows.reduce((s, r) => s + (r.realizedPnl ?? 0), 0);
+    const wins = settledRows.filter((r) => (r.realizedPnl ?? 0) > 0).length;
+    const capital = CAPITAL_START + realized;
+
+    const skipReasons = new Map<string, number>();
+    for (const s of skipped) {
+      const k = s.skipReason ?? "desconocido";
+      skipReasons.set(k, (skipReasons.get(k) ?? 0) + 1);
+    }
+
+    const doorAgg = new Map<string, { n: number; wins: number; pnl: number; held: number }>();
+    for (const r of settledRows) {
+      const k = r.exitReason ?? "desconocido";
+      const acc = doorAgg.get(k) ?? { n: 0, wins: 0, pnl: 0, held: 0 };
+      acc.n += 1;
+      if ((r.realizedPnl ?? 0) > 0) acc.wins += 1;
+      acc.pnl += r.realizedPnl ?? 0;
+      acc.held += r.heldHours ?? 0;
+      doorAgg.set(k, acc);
+    }
+
+    // The number this book exists to expose: what depth costs on the way OUT.
+    const exitSlips = settledRows
+      .map((r) => r.exitSlippageCents)
+      .filter((v): v is number => v !== null)
+      .sort((a, b) => a - b);
+    const entrySlips = taken
+      .map((r) => r.slippageCents)
+      .filter((v): v is number => v !== null)
+      .sort((a, b) => a - b);
+    const med = (xs: number[]) => (xs.length ? xs[Math.floor(xs.length / 2)] : null);
+
+    return {
+      rows,
+      open,
+      settled: settledRows,
+      capital,
+      committed: open.length * FLAT_STAKE,
+      realized,
+      roi: settledRows.length ? realized / (settledRows.length * FLAT_STAKE) : null,
+      winRate: settledRows.length ? wins / settledRows.length : null,
+      settledCount: settledRows.length,
+      takenCount: taken.length,
+      skippedCount: skipped.length,
+      seenCount: rows.length,
+      skipReasons: [...skipReasons.entries()].sort((a, b) => b[1] - a[1]),
+      doors: [...doorAgg.entries()]
+        .map(([door, v]) => ({
+          door,
+          n: v.n,
+          share: settledRows.length ? v.n / settledRows.length : 0,
+          winRate: v.n ? v.wins / v.n : null,
+          roi: v.n ? v.pnl / (v.n * FLAT_STAKE) : null,
+          avgHeldHours: v.n ? v.held / v.n : null,
+        }))
+        .sort((a, b) => b.n - a.n),
+      medianEntrySlippageCents: med(entrySlips),
+      medianExitSlippageCents: med(exitSlips),
+      exitPricedCount: exitSlips.length,
+      startedAt: rows.length ? rows[rows.length - 1].openedAt : null,
+      broken: null as string | null,
+    };
+  } catch (err) {
+    return {
+      rows: [], open: [], settled: [], capital: CAPITAL_START, committed: 0, realized: 0,
+      roi: null, winRate: null, settledCount: 0, takenCount: 0, skippedCount: 0, seenCount: 0,
+      skipReasons: [] as [string, number][],
+      doors: [] as { door: string; n: number; share: number; winRate: number | null; roi: number | null; avgHeldHours: number | null }[],
+      medianEntrySlippageCents: null, medianExitSlippageCents: null, exitPricedCount: 0,
+      startedAt: null,
+      broken: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+export type CriptoBookView = ReturnType<typeof getCriptoBook>;
 
 /** Everything the 🧩 Combo book needs — combo ledger only, never the others. */
 export function getComboBookStats(db: Db) {
