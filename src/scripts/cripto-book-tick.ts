@@ -1,6 +1,7 @@
 import { asc, eq, inArray, ne, sql } from "drizzle-orm";
 import { criptoBook, paperTrades } from "@/db/schema";
 import {
+  BOOK_START_MS,
   CAPITAL_START,
   FLAT_STAKE,
   MAX_CONCURRENT,
@@ -116,7 +117,14 @@ runScript("cripto-book-tick", async (db) => {
     .where(ne(paperTrades.track, "elite"))
     .orderBy(asc(paperTrades.openedAt))
     .all()
-    .filter((t) => !seen.has(t.id) && t.depthLadderJson !== null && isEligible(t));
+    .filter(
+      (t) =>
+        !seen.has(t.id) &&
+        // Forward-only: never reach back into the data the thesis came from.
+        t.openedAt.getTime() >= BOOK_START_MS &&
+        t.depthLadderJson !== null &&
+        isEligible(t),
+    );
 
   let taken = 0;
   let confluences = 0;

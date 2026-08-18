@@ -45,6 +45,17 @@ export const MAX_CONCURRENT = 5;
  */
 const ELIGIBLE_BAND = "f55";
 
+/**
+ * Inception. Only copies opened after this instant are considered.
+ *
+ * Without it, resetting the table would not restart the experiment — it would
+ * BACKFILL it: the tick re-scans every paper trade it has not already judged,
+ * so an empty table means "judge all of history", replaying the very data the
+ * +35.5% was found in. That is in-sample measurement wearing the clothes of a
+ * forward test, and it is the single most repeated mistake in this project.
+ */
+export const BOOK_START_MS = Date.parse("2026-08-18T04:00:00Z");
+
 export function isMirrorTrack(track: string): boolean {
   return track === "elite";
 }

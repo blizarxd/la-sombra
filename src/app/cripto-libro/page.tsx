@@ -250,6 +250,11 @@ export default function CriptoLibroPage() {
             cada ciclo de marcado, así que puede tener minutos. Entre medias el libro pudo cambiar.
           </li>
           <li>
+            <strong className="text-bright">Arranca en cero, hacia adelante.</strong> Solo cuenta señales abiertas
+            después del reinicio. Rellenarlo con el histórico sería medir la tesis sobre los mismos datos que la
+            produjeron — el error más repetido de este proyecto.
+          </li>
+          <li>
             <strong className="text-bright">n=23 es una muestra minúscula.</strong> El +35,5% de Cripto viene de 23
             operaciones. Este libro existe justamente para ver si aguanta con más.
           </li>
