@@ -4,7 +4,6 @@ import {
   CAPITAL_START,
   FLAT_STAKE,
   MAX_CONCURRENT,
-  TIME_STOP_HOURS,
   concurrentAt,
   decide,
   isDecided,
@@ -51,11 +50,13 @@ runScript("cripto-book-tick", async (db) => {
       if (!t || entry.entryPrice === null || entry.shares === null) continue;
 
       const heldHours = (now.getTime() - entry.openedAt.getTime()) / 3_600_000;
+      // No time stop: the capital book where the +35.5% was measured has none,
+      // and these markets resolve in ~15 minutes anyway, so waiting for the
+      // oracle ties up no meaningful capital.
       let door: ExitDoor | null = null;
       if (t.status === "closed") door = "salida-billetera";
       else if (t.status === "resolved") door = "resolucion";
       else if (isDecided(t.currentPrice)) door = "precio-decidido";
-      else if (heldHours >= TIME_STOP_HOURS) door = "tiempo-agotado";
       if (!door) continue;
 
       // A resolved market pays out per share with no book to sell into.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { isEligible, realExitValue } from "@/lib/criptoBook";
 
 describe("criptoBook isEligible", () => {
-  const base = { track: "core", marketQuestion: "Bitcoin Up or Down - 3PM" };
+  const base = { track: "core", marketQuestion: "Bitcoin Up or Down - 3PM", entryPrice: 0.57 };
 
   it("takes crypto markets — the only entry filter with a positive floor", () => {
     expect(isEligible(base)).toBe(true);
@@ -19,6 +19,20 @@ describe("criptoBook isEligible", () => {
 
   it("rejects La Crema, whose copies mirror the other arms", () => {
     expect(isEligible({ ...base, track: "elite" })).toBe(false);
+  });
+
+  it("rejects prices outside 55-59c — the band the finding was measured in", () => {
+    // The first run of this book had no band filter and took 36c, 40c and 63c
+    // entries; the result inverted from +35.5% to -15.2%.
+    expect(isEligible({ ...base, entryPrice: 0.36 })).toBe(false);
+    expect(isEligible({ ...base, entryPrice: 0.4 })).toBe(false);
+    expect(isEligible({ ...base, entryPrice: 0.634 })).toBe(false);
+    expect(isEligible({ ...base, entryPrice: 0.54 })).toBe(false);
+  });
+
+  it("accepts both edges of the band", () => {
+    expect(isEligible({ ...base, entryPrice: 0.55 })).toBe(true);
+    expect(isEligible({ ...base, entryPrice: 0.599 })).toBe(true);
   });
 });
 

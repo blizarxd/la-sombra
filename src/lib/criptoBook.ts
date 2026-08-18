@@ -9,6 +9,7 @@ import {
   type OpenWindow,
 } from "@/lib/capitalBook";
 import { categorizeMarket } from "@/lib/category";
+import { fineBandKey } from "@/lib/slices";
 import { markToBid } from "@/lib/paper/engine";
 import type { BookLevel } from "@/lib/adapters/types";
 
@@ -36,16 +37,26 @@ export const CAPITAL_START = 500;
 export const FLAT_STAKE = 60;
 export const MAX_CONCURRENT = 5;
 
-/** Hours before an undecided position is cut rather than left to the oracle. */
-export const TIME_STOP_HOURS = 6;
+/**
+ * The band the +35.5% was actually measured in. Dropping it was the mistake
+ * that sank the first run of this book: entries landed at 36c, 40c and 63c —
+ * prices the finding never covered — and the result inverted to -15.2%. A
+ * result only transfers to the rules it was measured under.
+ */
+const ELIGIBLE_BAND = "f55";
 
 export function isMirrorTrack(track: string): boolean {
   return track === "elite";
 }
 
-/** The whole entry thesis: crypto markets, any price, any arm but La Crema. */
-export function isEligible(t: { track: string; marketQuestion: string | null }): boolean {
+/**
+ * Crypto, inside 55-59c. Deliberately identical to the capital book's gate
+ * minus esports, because that book is where the +35.5% (n=23, floor +6.3%)
+ * was observed and any extra deviation makes the comparison meaningless.
+ */
+export function isEligible(t: { track: string; marketQuestion: string | null; entryPrice: number }): boolean {
   if (isMirrorTrack(t.track)) return false;
+  if (fineBandKey(t.entryPrice) !== ELIGIBLE_BAND) return false;
   return categorizeMarket(t.marketQuestion) === "cripto";
 }
 
@@ -69,12 +80,11 @@ export function realExitValue(bidLevelsJson: string | null, shares: number): num
   }
 }
 
-export type ExitDoor = "precio-decidido" | "salida-billetera" | "tiempo-agotado" | "resolucion";
+export type ExitDoor = "precio-decidido" | "salida-billetera" | "resolucion";
 
 export const EXIT_DOOR_LABELS: Record<ExitDoor, string> = {
   "precio-decidido": "precio ya decidido",
   "salida-billetera": "la billetera vendió",
-  "tiempo-agotado": "corte por tiempo",
   resolucion: "llegó al oráculo",
 };
 

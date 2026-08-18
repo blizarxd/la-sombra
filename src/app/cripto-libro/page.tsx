@@ -1,5 +1,5 @@
 import { getDb } from "@/db/client";
-import { CAPITAL_START, EXIT_DOOR_LABELS, FLAT_STAKE, MAX_CONCURRENT, TIME_STOP_HOURS, type ExitDoor } from "@/lib/criptoBook";
+import { CAPITAL_START, EXIT_DOOR_LABELS, FLAT_STAKE, MAX_CONCURRENT, type ExitDoor } from "@/lib/criptoBook";
 import { money, when } from "@/lib/format";
 import { getCriptoBook } from "@/lib/queries";
 import { Card, PnlText, Stat, Table, Td, Th } from "../components/ui";
@@ -16,7 +16,6 @@ const SKIP_LABEL: Record<string, string> = {
 const DOOR_TONE: Record<string, string> = {
   "precio-decidido": "text-bright",
   "salida-billetera": "text-profit",
-  "tiempo-agotado": "text-watch",
   resolucion: "text-loss",
 };
 
@@ -36,7 +35,7 @@ export default function CriptoLibroPage() {
         <p className="mt-2 max-w-3xl text-sm text-mist">
           Tras un día de forward-test, solo un criterio resultó a la vez rentable y{" "}
           <strong className="text-bright">conocible antes de apostar</strong>: la categoría. En las 100 operaciones
-          liquidadas del libro de capital, Cripto rindió <strong className="text-profit">+35,5%</strong> (n=23, 78% de
+          liquidadas del libro de capital, Cripto <strong>dentro de la banda 55-59¢</strong> rindió <strong className="text-profit">+35,5%</strong> (n=23, 78% de
           acierto, piso 90% <strong className="text-profit">+6,3%</strong>) mientras Esports —3 de cada 4 operaciones—
           quedó en <strong>−0,0%</strong> (n=77, piso −12,2%). Toda la ganancia venía de un cuarto de las apuestas.
         </p>
@@ -255,8 +254,9 @@ export default function CriptoLibroPage() {
             operaciones. Este libro existe justamente para ver si aguanta con más.
           </li>
           <li>
-            <strong className="text-bright">Corte por tiempo a las {TIME_STOP_HOURS}h.</strong> Es un número elegido, no
-            optimizado. En el libro de Salidas esa puerta rindió −21,8%.
+            <strong className="text-bright">Sin corte por tiempo.</strong> El libro de capital donde se midió el +35,5%
+            no tiene ninguno, y estos mercados resuelven en ~15 min, así que esperar al oráculo no inmoviliza capital de
+            forma relevante.
           </li>
         </ul>
         {b.startedAt ? <p className="mt-3 text-xs text-mist">Registrando desde {when(b.startedAt)}.</p> : null}
